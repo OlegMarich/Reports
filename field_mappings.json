@@ -1,0 +1,14 @@
+{
+    "mappings": {
+        "CUSTOMER": "Odbiorca",
+        "Data wysyłki": "Data wysyłki",
+        "truck plate nr": "truck plate nr",
+        "trailer plate nr": "Kierowca",
+        "timewindow start": "Godzina",
+        "QTY": "Ilość razem"
+    },
+    "source": "PLAN_week_23.xlsx",
+    "source_sheet": "03.06.MON",
+    "target": "9. RAPORT WYDANIA 2023.xlsx",
+    "target_template": "RAPORT WYDANIA F-NR 15"
+}
