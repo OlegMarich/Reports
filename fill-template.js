@@ -4,44 +4,59 @@ const fs = require('fs');
 
 // 📅 Сьогоднішня дата
 const today = new Date();
-const currentDay = String(today.getDate()).padStart(2, '0');
-const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
 const dateIso = today.toISOString().slice(0, 10); // YYYY-MM-DD
 
 // 🧾 Шляхи
 const templatePath = path.join(__dirname, 'template.xlsx');
-const jsonPath = path.join(__dirname, 'output', dateIso, 'data.json'); // ❗️зчитує з output/дата/data.json
+const jsonPath = path.join(__dirname, 'output', dateIso, 'data.json');
 const outputDir = path.join(__dirname, 'output', dateIso);
 
-// 📦 Перевірка наявності шаблону і JSON
+// ❗ Перевірка наявності JSON
 if (!fs.existsSync(jsonPath)) {
   console.error(`❌ Файл ${jsonPath} не знайдено. Спочатку згенеруй його!`);
   process.exit(1);
 }
 
 const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-const workbook = new ExcelJS.Workbook();
+
+// 🧠 Кількість ящиків на палету для кожного клієнта
+function getBoxesPerPallet(clientName) {
+  const name = clientName.toLowerCase();
+
+  if (name.includes('aldi')) return 28;
+  if (name.includes('lidl')) return 48;
+  if (name.includes('biedronka')) return 28;
+  if (name.includes('spar hrvatska')) return 48;
+  if (name.includes('spar ljubljana')) return 48;
+  if (name.includes('spar')) return 32;
+
+  return 1; // За замовчуванням
+}
 
 async function fillTemplate() {
-  await workbook.xlsx.readFile(templatePath);
-
-  const sheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
-  if (!sheet) {
-    console.error('❌ Аркуш "RAPORT WYDANIA F-NR 15" не знайдено в шаблоні!');
-    return;
-  }
-
   for (const entry of data) {
     const newWorkbook = new ExcelJS.Workbook();
     await newWorkbook.xlsx.readFile(templatePath);
-    const newSheet = newWorkbook.getWorksheet('RAPORT WYDANIA F-NR 15');
+    const sheet = newWorkbook.getWorksheet('RAPORT WYDANIA F-NR 15');
 
-    newSheet.getCell('J8').value = entry['Data wysyłki'];
-    newSheet.getCell('C8').value = entry['Odbiorca'];
-    newSheet.getCell('J25').value = entry['Ilość разом'];
-    newSheet.getCell('J29').value = entry['Kierowca'];
+    if (!sheet) {
+      console.error('❌ Аркуш "RAPORT WYDANIA F-NR 15" не знайдено в шаблоні!');
+      continue;
+    }
 
-    const safeClientName = entry['Odbiorca'].replace(/[\\/:*?"<>|]/g, '_');
+    const client = entry['Odbiorca'];
+    const qty = Number(entry['Ilość razem'] || 0);
+    const providedPal = Number(entry['Pal'] || 0);
+
+    // Обчислення палет, якщо не задано
+    const pal = providedPal > 0 ? providedPal : Math.ceil(qty / getBoxesPerPallet(client));
+
+    sheet.getCell('J8').value = entry['Data wysyłki'];
+    sheet.getCell('C8').value = client;
+    sheet.getCell('J25').value = `${qty} (${pal})`;
+    sheet.getCell('J29').value = entry['Kierowca'];
+
+    const safeClientName = client.replace(/[\\/:*?"<>|]/g, '_');
     const outputPath = path.join(outputDir, `${safeClientName}.xlsx`);
 
     await newWorkbook.xlsx.writeFile(outputPath);

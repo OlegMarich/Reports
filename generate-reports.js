@@ -53,10 +53,7 @@ const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
 // 🔄 Конвертація аркушів у JSON
-const transportData = xlsx.utils.sheet_to_json(transportSheet, {
-  defval: '',
-  range: 0,
-});
+const transportData = xlsx.utils.sheet_to_json(transportSheet, { defval: '', range: 0 });
 const salesData = xlsx.utils.sheet_to_json(salesSheet, { defval: '' });
 
 // 🔧 Нормалізація ключів
@@ -75,31 +72,34 @@ const aldiRows = [];
 transportData.forEach((row) => {
   const r = normalizeRow(row);
   const client = r['customer'] || '';
-  const quantity = parseFloat(r['qty']) || 0;
+  const quantity = Number(r['qty']);
+  const pallets = Number(r['pal']);
   const truck = `${r['truck plate nr']} ${r['trailer plate nr'] || ''}`.trim();
 
   if (!client) return;
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({ quantity, truck });
+    aldiRows.push({ quantity, pallets });
   } else {
     result.push({
       'Data wysyłki': date,
       'Odbiorca': client,
-      'Ilość razem': quantity, // ✅ оновлений ключ
+      'Ilość razem': quantity,
       'Kierowca': truck,
+      'Pal': pallets,
     });
   }
 });
 
 if (aldiRows.length > 0) {
   const totalQty = aldiRows.reduce((sum, r) => sum + r.quantity, 0);
-  const trucks = aldiRows.map((r) => r.truck).filter(Boolean).join(', ');
+  const totalPal = aldiRows.reduce((sum, r) => sum + r.pallets, 0);
   result.push({
     'Data wysyłki': date,
     'Odbiorca': 'Aldi Lukovica',
-    'Ilość razem': totalQty, // ✅ оновлений ключ
-    'Kierowca': trucks,
+    'Ilość razem': totalQty,
+    'Kierowca': '',
+    'Pal': totalPal,
   });
 }
 
