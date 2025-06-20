@@ -53,8 +53,8 @@ const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
 // 🔄 Конвертація аркушів у JSON
-const transportData = xlsx.utils.sheet_to_json(transportSheet, { defval: '', range: 0 });
-const salesData = xlsx.utils.sheet_to_json(salesSheet, { defval: '' });
+const transportData = xlsx.utils.sheet_to_json(transportSheet, {defval: '', range: 0});
+const salesData = xlsx.utils.sheet_to_json(salesSheet, {defval: ''});
 
 // 🔧 Нормалізація ключів
 function normalizeRow(row) {
@@ -65,6 +65,22 @@ function normalizeRow(row) {
   return normalized;
 }
 
+// 🔁 Перетворення часу з формату Excel (0.25 → 06:00)
+function convertExcelTime(excelTime) {
+  if (isNaN(excelTime)) return '';
+  const totalMinutes = Math.round(excelTime * 24 * 60);
+  const hours = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+  const minutes = String(totalMinutes % 60).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+// 🧮 Сортуємо транспортні дані за loading time
+transportData.sort((a, b) => {
+  const rA = normalizeRow(a);
+  const rB = normalizeRow(b);
+  return (rA['loading time'] || 0) - (rB['loading time'] || 0);
+});
+
 // 📦 Формування результату
 const result = [];
 const aldiRows = [];
@@ -72,14 +88,19 @@ const aldiRows = [];
 transportData.forEach((row) => {
   const r = normalizeRow(row);
   const client = r['customer'] || '';
-  const quantity = Number(r['qty']);
-  const pallets = Number(r['pal']);
+  const quantity = Number(r['qty']) || 0;
+  const pallets = Number(r['pal']) || 0;
   const truck = `${r['truck plate nr']} ${r['trailer plate nr'] || ''}`.trim();
+  const driver = r['driver'] || '';
+  const loadingRaw = Number(r['loading time']);
+  const startRaw = Number(r['timewindow start']);
+  const loading = convertExcelTime(loadingRaw);
+  const start = convertExcelTime(startRaw);
 
   if (!client) return;
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({ quantity, pallets });
+    aldiRows.push({quantity, pallets, driver, loading, start});
   } else {
     result.push({
       'Data wysyłki': date,
@@ -87,6 +108,9 @@ transportData.forEach((row) => {
       'Ilość razem': quantity,
       'Kierowca': truck,
       'Pal': pallets,
+      'Driver': driver,
+      'Godzina': loading,
+      'Timewindow start': start,
     });
   }
 });
@@ -94,19 +118,23 @@ transportData.forEach((row) => {
 if (aldiRows.length > 0) {
   const totalQty = aldiRows.reduce((sum, r) => sum + r.quantity, 0);
   const totalPal = aldiRows.reduce((sum, r) => sum + r.pallets, 0);
+  const last = aldiRows[aldiRows.length - 1]; // беремо останній запис для водія і часу
   result.push({
     'Data wysyłki': date,
     'Odbiorca': 'Aldi Lukovica',
     'Ilość razem': totalQty,
-    'Kierowca': '',
+    'Kierowця': '',
     'Pal': totalPal,
+    'Driver': last.driver || '',
+    'Godzina': last.loading || '',
+    'Timewindow start': last.start || '',
   });
 }
 
 // 📁 Створення папки з назвою дати
 const outputDir = path.join(__dirname, 'output', date);
 if (!fs.existsSync(outputDir)) {
-  fs.mkdirSync(outputDir, { recursive: true });
+  fs.mkdirSync(outputDir, {recursive: true});
 }
 
 // 💾 Запис у файл

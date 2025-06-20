@@ -55,6 +55,7 @@ async function fillTemplate() {
     sheet.getCell('C8').value = client;
     sheet.getCell('J25').value = `${qty} (${pal})`;
     sheet.getCell('J29').value = entry['Kierowca'];
+    sheet.getCell('E10').value = entry['Godzina'];
 
     const safeClientName = client.replace(/[\\/:*?"<>|]/g, '_');
     const outputPath = path.join(outputDir, `${safeClientName}.xlsx`);
