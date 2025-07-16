@@ -9,6 +9,10 @@ if (!selectedDate) {
   process.exit(1);
 }
 
+// 🔄 Формат дати для клітинки (DD.MM)
+const [year, month, day] = selectedDate.split('-');
+const formattedDate = `${year}.${month}.${day}`;
+
 const jsonPath = path.join(__dirname, 'output', selectedDate, 'data.json');
 if (!fs.existsSync(jsonPath)) {
   console.error(`❌ Не знайдено файл data.json для дати ${selectedDate}`);
@@ -19,8 +23,8 @@ const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
 const outputDir = path.join(__dirname, 'output', selectedDate);
 
 // 📄 Шлях до шаблону
-const templatePath = path.join(__dirname, 'Loading for day.xlsx');
-const outputPath = path.join(outputDir, 'Loading Completed.xlsx');
+const templatePath = path.join(__dirname, 'clean-template.xlsx');
+const outputPath = path.join(outputDir, 'clean-template.xlsx');
 
 // 🔁 Конвертація часу
 function convertExcelTime(timeFloat) {
@@ -41,9 +45,15 @@ data.sort((a, b) => {
 (async () => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(templatePath);
-  const sheet = workbook.getWorksheet(1);
 
-  let currentRow = 2;
+  // 🔍 Вибір аркуша за назвою
+  const sheet = workbook.getWorksheet('sample');
+  if (!sheet) {
+    console.error('❌ Не знайдено аркуша з назвою "sample"');
+    process.exit(1);
+  }
+
+  let currentRow = 4;
 
   const borderStyle = {
     top: { style: 'thin' },
@@ -54,13 +64,13 @@ data.sort((a, b) => {
 
   for (const entry of data) {
     const truck = entry['Kierowca'] || '';
-    const driver = entry['Driver'] || '';
+    // const driver = entry['Driver'] || '';
     const client = entry['Odbiorca'] || '';
     const trailer = truck.split(' ')[1] || '';
     const truckPlate = truck.split(' ')[0] || '';
-    const loadingTime = entry['Godzina'] || '';
-    const timeWindow = entry['Timewindow start'] || '';
-    const qty = entry['Ilość razem'] || '';
+    // const loadingTime = entry['Godzina'] || '';
+    // const timeWindow = entry['Timewindow start'] || '';
+    // const qty = entry['Ilość razem'] || '';
 
     // ✅ Округлення палет вгору
     let pal = entry['Pal'] || '';
@@ -73,14 +83,11 @@ data.sort((a, b) => {
 
     const row = sheet.getRow(currentRow);
     const cells = [
-      { col: 'A', value: client },
-      { col: 'B', value: truckPlate },
-      { col: 'C', value: trailer },
-      { col: 'D', value: driver },
-      { col: 'E', value: loadingTime },
-      { col: 'F', value: timeWindow },
-      { col: 'G', value: qty },
-      { col: 'H', value: pal },
+      { col: 'B', value: formattedDate },
+      { col: 'C', value: client },
+      { col: 'D', value: truckPlate },
+      { col: 'E', value: trailer },
+      { col: 'F', value: formattedDate },
     ];
 
     for (const { col, value } of cells) {
@@ -94,7 +101,6 @@ data.sort((a, b) => {
     row.commit();
     currentRow++;
   }
-
 
   // 🔲 Обведення клітинок
   const startRow = 2;

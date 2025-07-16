@@ -2,61 +2,73 @@ const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
 
-// 📁 Шляхи
 const inputDir = path.join(__dirname, 'input');
 
-// 🔍 Зчитування назв файлів
+// ⏱ Отримання дати з аргументу
+const userDateArg = process.argv[2]; // очікується у форматі YYYY-MM-DD
+const today = new Date();
+
+let targetDate;
+let date;
+
+if (userDateArg && /^\d{4}-\d{2}-\d{2}$/.test(userDateArg)) {
+  const [year, month, day] = userDateArg.split('-');
+  targetDate = `${day}.${month}`;
+  date = userDateArg;
+} else {
+  const currentDay = String(today.getDate()).padStart(2, '0');
+  const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+  targetDate = `${currentDay}.${currentMonth}`;
+  date = today.toISOString().slice(0, 10);
+}
+
+// 🔍 Зчитування файлів
 const files = fs.readdirSync(inputDir);
-const transportPlanFile = files.find((f) => f.toLowerCase().includes('plan_week'));
-const salesPlanFile = files.find((f) => f.toLowerCase().includes('sales plan'));
+const transportPlanFile = files.find(f => f.toLowerCase().includes('plan_week'));
+const salesPlanFile = files.find(f => f.toLowerCase().includes('sales plan'));
 
 if (!transportPlanFile || !salesPlanFile) {
-  console.error('❌ Не знайдено обидва файли: транспортний план або sales plan.');
+  console.error('❌ Файли не знайдено.');
   process.exit(1);
 }
 
-const transportPlanPath = path.join(inputDir, transportPlanFile);
-const salesPlanPath = path.join(inputDir, salesPlanFile);
+const transportPath = path.join(inputDir, transportPlanFile);
+const salesPath = path.join(inputDir, salesPlanFile);
 
-// 📖 Зчитування Excel
-const transportWorkbook = xlsx.readFile(transportPlanPath);
-const salesWorkbook = xlsx.readFile(salesPlanPath);
+if (fs.statSync(transportPath).size === 0) {
+  console.error(`❌ Файл ${transportPlanFile} порожній або пошкоджений.`);
+  process.exit(1);
+}
+if (fs.statSync(salesPath).size === 0) {
+  console.error(`❌ Файл ${salesPlanFile} порожній або пошкоджений.`);
+  process.exit(1);
+}
 
-// 📆 Параметр дати з командного рядка
-const userDateArg = process.argv[2]; // Очікується у форматі DD.MM
-const today = new Date();
-const currentDay = String(today.getDate()).padStart(2, '0');
-const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
-const targetDate = userDateArg || `${currentDay}.${currentMonth}`;
+const transportWorkbook = xlsx.readFile(transportPath);
+const salesWorkbook = xlsx.readFile(salesPath);
 
-// 🧠 Пошук аркуша з відповідною назвою
+// 🧠 Пошук аркуша за датою
+function normalizeDateString(str) {
+  return str.replace(/\D/g, '').padStart(4, '0');
+}
+
 function findSheetByDate(sheetNames, ddmm) {
-  return sheetNames.find((name) => name.startsWith(ddmm));
+  const normalizedTarget = normalizeDateString(ddmm);
+  return sheetNames.find(name => normalizeDateString(name).includes(normalizedTarget));
 }
 
 const matchedSheetName = findSheetByDate(transportWorkbook.SheetNames, targetDate);
-
 if (!matchedSheetName) {
-  console.error(`❌ Не знайдено аркуша з назвою ${targetDate} у транспортному плані!`);
+  console.error(`❌ Не знайдено аркуша з назвою ${targetDate}`);
   process.exit(1);
 }
 
-// 📅 Формування ISO-дати
-function toIsoDate(ddmm) {
-  const [day, month] = ddmm.split('.');
-  const year = today.getFullYear();
-  return new Date(`${year}-${month}-${day}`).toISOString().slice(0, 10);
-}
-
-const date = toIsoDate(targetDate);
 const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
-// 🔄 Конвертація аркушів у JSON
-const transportData = xlsx.utils.sheet_to_json(transportSheet, {defval: '', range: 0});
-const salesData = xlsx.utils.sheet_to_json(salesSheet, {defval: ''});
+const transportData = xlsx.utils.sheet_to_json(transportSheet, { defval: '', range: 0 });
+const salesData = xlsx.utils.sheet_to_json(salesSheet, { defval: '' });
 
-// 🔧 Нормалізація ключів
 function normalizeRow(row) {
   const normalized = {};
   for (const key in row) {
@@ -65,7 +77,6 @@ function normalizeRow(row) {
   return normalized;
 }
 
-// 🔁 Перетворення часу з формату Excel (0.25 → 06:00)
 function convertExcelTime(excelTime) {
   if (isNaN(excelTime)) return '';
   const totalMinutes = Math.round(excelTime * 24 * 60);
@@ -74,40 +85,36 @@ function convertExcelTime(excelTime) {
   return `${hours}:${minutes}`;
 }
 
-// 🧮 Сортуємо транспортні дані за loading time
 transportData.sort((a, b) => {
   const rA = normalizeRow(a);
   const rB = normalizeRow(b);
   return (rA['loading time'] || 0) - (rB['loading time'] || 0);
 });
 
-// 📦 Формування результату
 const result = [];
 const aldiRows = [];
 
-transportData.forEach((row) => {
+transportData.forEach(row => {
   const r = normalizeRow(row);
   const client = r['customer'] || '';
-  const quantity = Number(r['qty']) || 0;
-  const pallets = Number(r['pal']) || 0;
-  const truck = `${r['truck plate nr']} ${r['trailer plate nr'] || ''}`.trim();
+  const qty = Number(r['qty']) || 0;
+  const pal = Math.ceil(Number(r['pal']) || 0); // ✅ округлення палет
+  const truck = `${r['truck plate nr'] || ''} ${r['trailer plate nr'] || ''}`.trim();
   const driver = r['driver'] || '';
-  const loadingRaw = Number(r['loading time']);
-  const startRaw = Number(r['timewindow start']);
-  const loading = convertExcelTime(loadingRaw);
-  const start = convertExcelTime(startRaw);
+  const loading = convertExcelTime(Number(r['loading time']));
+  const start = convertExcelTime(Number(r['timewindow start']));
 
   if (!client) return;
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({quantity, pallets, driver, loading, start});
+    aldiRows.push({ qty, pal, driver, loading, start });
   } else {
     result.push({
       'Data wysyłki': date,
       'Odbiorca': client,
-      'Ilość razem': quantity,
+      'Ilość razem': qty,
       'Kierowca': truck,
-      'Pal': pallets,
+      'Pal': pal,
       'Driver': driver,
       'Godzina': loading,
       'Timewindow start': start,
@@ -116,14 +123,14 @@ transportData.forEach((row) => {
 });
 
 if (aldiRows.length > 0) {
-  const totalQty = aldiRows.reduce((sum, r) => sum + r.quantity, 0);
-  const totalPal = aldiRows.reduce((sum, r) => sum + r.pallets, 0);
-  const last = aldiRows[aldiRows.length - 1]; // беремо останній запис для водія і часу
+  const totalQty = aldiRows.reduce((sum, r) => sum + r.qty, 0);
+  const totalPal = Math.ceil(aldiRows.reduce((sum, r) => sum + r.pal, 0)); // ✅ округлення підсумку
+  const last = aldiRows[aldiRows.length - 1];
   result.push({
     'Data wysyłki': date,
     'Odbiorca': 'Aldi Lukovica',
     'Ilość razem': totalQty,
-    'Kierowця': '',
+    'Kierowca': 'truck',
     'Pal': totalPal,
     'Driver': last.driver || '',
     'Godzina': last.loading || '',
@@ -131,13 +138,8 @@ if (aldiRows.length > 0) {
   });
 }
 
-// 📁 Створення папки з назвою дати
-const outputDir = path.join(__dirname, 'output', date);
-if (!fs.existsSync(outputDir)) {
-  fs.mkdirSync(outputDir, {recursive: true});
-}
+const outputPath = path.join(__dirname, 'output', date);
+if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, { recursive: true });
 
-// 💾 Запис у файл
-const outputPath = path.join(outputDir, 'data.json');
-fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf-8');
-console.log(`✅ Звіт за ${date} збережено у: ${outputPath}`);
+fs.writeFileSync(path.join(outputPath, 'data.json'), JSON.stringify(result, null, 2), 'utf-8');
+console.log(`✅ Збережено у: ${path.join(outputPath, 'data.json')}`);
