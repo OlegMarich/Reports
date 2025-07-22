@@ -1,4 +1,4 @@
-const {exec} = require('child_process');
+const { exec } = require('child_process');
 const path = require('path');
 
 const dateArg = process.argv[2];
@@ -10,7 +10,9 @@ if (!dateArg) {
 const generateScript = path.join(__dirname, 'generate-reports.js');
 const loadingScript = path.join(__dirname, 'fill-template-loading.js');
 const templateScript = path.join(__dirname, 'fill-template-client.js');
-const cleanScript = path.join(__dirname, 'fill-template-clean.js'); // 🟡 нове
+const cleanScript = path.join(__dirname, 'fill-template-clean.js');
+const parseSalesScript = path.join(__dirname, 'parse-sales.js'); // Твій скрипт читання sales
+const planWeekScript = path.join(__dirname, 'plan-week.js');
 
 console.log('🚀 Generating report...');
 
@@ -45,8 +47,25 @@ exec(`node "${generateScript}" ${dateArg}`, (err, stdout, stderr) => {
         }
         console.log(stdout4);
 
-        // ✅ фінальне повідомлення
-        console.log('@@@DONE:' + dateArg);
+        console.log('📦 Parsing sales data...');
+        exec(`node "${parseSalesScript}"`, (err5, stdout5, stderr5) => {
+          if (err5) {
+            console.error('❌ Error during parse-sales:', stderr5 || err5.message);
+            process.exit(1);
+          }
+          console.log(stdout5);
+
+          console.log('📦 Generating plan week...');
+          exec(`node "${planWeekScript}" ${dateArg}`, (err6, stdout6, stderr6) => {
+            if (err6) {
+              console.error('❌ Error during plan-week:', stderr6 || err6.message);
+              process.exit(1);
+            }
+            console.log(stdout6);
+
+            console.log('@@@DONE:' + dateArg);
+          });
+        });
       });
     });
   });

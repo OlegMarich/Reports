@@ -1,103 +1,97 @@
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 
-// 🧽 Очищення зайвих суфіксів (з базовою нормалізацією)
 function normalizeName(name) {
   return name
     .toLowerCase()
-    .replace(/\[.*?\]/g, '') // видалити [3+/4] або [4]
-    .replace(/\(.*?\)/g, '') // видалити (3-3.5)
-    //.replace(/\bbio\b/gi, '') // видалити "bio"
-    //node parser-sales.js
-.replace(/\bbananas?\b/gi, '') // видалити "banana" або "bananas"
-    .replace(/\s+/g, ' ') // прибрати подвійні пробіли
+    .replace(/\[.*?\]/g, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\bbananas?\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9 ]/gi, '') // додатково прибираємо спецсимволи
     .trim();
 }
 
-// Функція капіталізації кожного слова в рядку
 function capitalizeWords(str) {
   return str.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-// 📅 Назва дня тижня англійською
-function getEnglishWeekdayName(dateStr) {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const date = new Date(dateStr);
-  if (isNaN(date)) {
-    console.warn(`⚠️ Некоректна дата: "${dateStr}"`);
-    return null;
-  }
+function getDayNameEng(date) {
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   return days[date.getDay()];
 }
 
-function askWeek() {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    rl.question('Введіть номер тижня (наприклад, 26): ', (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
-
 (async () => {
-  let week = process.argv[2];
-  if (!week) {
-    week = await askWeek();
-  }
+  const week = process.argv[2];
   if (!week) {
     console.error('❌ Не передано номер тижня');
     process.exit(1);
   }
 
   const folderName = `${week}_Week`;
+  const outputFolder = path.join(__dirname, 'input', folderName);
+  const jsonPath = path.join(outputFolder, 'sales.json');
+  const templatePath = path.join(__dirname, 'week-plan.xlsx');
+  const outputPath = path.join(outputFolder, `PLAN_week_${week}.xlsx`);
 
-  const jsonPath = path.join(__dirname, 'output', folderName, 'sales.json');
-  const templatePath = path.join(__dirname, 'template-week-plan.xlsx');
-  const outputPath = path.join(__dirname, 'output', folderName, `PLAN_week_${week}.xlsx`);
-
-  if (!fs.existsSync(jsonPath)) {
-    console.error(`❌ Не знайдено файл: ${jsonPath}`);
-    process.exit(1);
-  }
-  if (!fs.existsSync(templatePath)) {
-    console.error(`❌ Не знайдено шаблон: ${templatePath}`);
+  if (!fs.existsSync(outputFolder)) fs.mkdirSync(outputFolder, { recursive: true });
+  if (!fs.existsSync(jsonPath) || !fs.existsSync(templatePath)) {
+    console.error('❌ Не знайдено файл sales.json або шаблон Excel');
     process.exit(1);
   }
 
   const salesData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-
   const workbook = new ExcelJS.Workbook();
-
   await workbook.xlsx.readFile(templatePath);
 
-  console.log('📋 Назви листів у шаблоні:');
-  workbook.worksheets.forEach((ws) => console.log(`- "${ws.name}"`));
-
-  function findSheetIgnoreCase(workbook, name) {
-    const lowerName = name.trim().toLowerCase();
-    return workbook.worksheets.find((sheet) => sheet.name.trim().toLowerCase() === lowerName);
+  const glossarySheet = workbook.getWorksheet('glossary');
+  if (!glossarySheet) {
+    console.error('❌ Не знайдено аркуш "glossary" у шаблоні');
+    process.exit(1);
   }
 
-  function rowExists(sheet, customer, qty, product) {
-    for (let i = 2; i <= sheet.actualRowCount; i++) {
-      const row = sheet.getRow(i);
-      if (
-        normalizeName(row.getCell(2).value || '') === normalizeName(customer) &&
-        row.getCell(12).value === qty &&
-        normalizeName(row.getCell(11).value || '') === normalizeName(product) &&
-        (row.getCell(1).value || '') === 'OUTBOUND'
-      ) {
-        return true;
-      }
+  const glossaryMap = new Map();
+  const customerNameMap = new Map();
+
+  const headerRow = glossarySheet.getRow(1);
+  const colIndexes = {};
+  headerRow.eachCell((cell, colNumber) => {
+    const header = cell.text.toLowerCase().trim();
+    if (header.includes('customer')) colIndexes.customer = colNumber;
+    else if (header.includes('line') || header.includes('unloading')) colIndexes.line = colNumber;
+    else if (header.includes('product')) colIndexes.product = colNumber;
+    else if (header.includes('weight/box')) colIndexes.weightPerBox = colNumber;
+    else if (header.includes('box') && header.includes('pal')) colIndexes.boxPerPal = colNumber;
+  });
+
+  glossarySheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const customerRaw = row.getCell(colIndexes.customer).text || '';
+    const lineRaw = colIndexes.line ? row.getCell(colIndexes.line).text || '' : '';
+    const product = colIndexes.product ? row.getCell(colIndexes.product).text || 'BANANA' : 'BANANA';
+
+    let weightPerBox = 19.79;
+    const weightCell = row.getCell(colIndexes.weightPerBox).value;
+    if (typeof weightCell === 'number') weightPerBox = weightCell;
+    else if (!isNaN(parseFloat(weightCell))) weightPerBox = parseFloat(weightCell);
+
+    const boxPerPal = colIndexes.boxPerPal ? parseInt(row.getCell(colIndexes.boxPerPal).value) || 32 : 32;
+
+    const key = normalizeName(`${customerRaw} ${lineRaw}`);
+    glossaryMap.set(key, { product, weightPerBox, boxPerPal });
+    customerNameMap.set(key, `${customerRaw} ${lineRaw}`.trim());
+  });
+
+  const daySheetsMap = {};
+  workbook.worksheets.forEach((sheet) => {
+    const cleanName = sheet.name.trim().toLowerCase();
+    if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(cleanName)) {
+      daySheetsMap[cleanName] = sheet;
     }
-    return false;
-  }
+  });
+
+  const usedSheetNames = new Set();
 
   for (const client of salesData) {
     if (normalizeName(client.customer) === 'total') continue;
@@ -106,31 +100,39 @@ function askWeek() {
       const { date, qty } = day;
       if (!qty || qty === 0) continue;
 
-      const weekdayName = getEnglishWeekdayName(date);
-      if (!weekdayName) continue;
+      const jsDate = new Date(date);
+      const dayNameEng = getDayNameEng(jsDate);
+      const dateFormatted = jsDate.toISOString().slice(0, 10);
+      const newSheetName = `${capitalizeWords(dayNameEng)} ${dateFormatted}`;
 
-      const sheet = findSheetIgnoreCase(workbook, weekdayName);
-      if (!sheet) {
-        console.warn(`⚠️ Не знайдено вкладки "${weekdayName}", пропускаю...`);
+      if (!(dayNameEng in daySheetsMap)) {
+        console.warn(`⚠️ Лист шаблону для дня "${capitalizeWords(dayNameEng)}" відсутній, пропускаю`);
         continue;
       }
 
-      const baseCustomer = normalizeName(client.customer);
-      const unloadingPlace = normalizeName(client.line || '');
-      const fullCustomer = capitalizeWords(`${baseCustomer} ${unloadingPlace}`.trim());
+      const sheet = daySheetsMap[dayNameEng];
+      if (!usedSheetNames.has(newSheetName)) {
+        sheet.name = newSheetName;
+        usedSheetNames.add(newSheetName);
+        if (sheet.actualRowCount > 1) {
+          sheet.spliceRows(2, sheet.actualRowCount - 1);
+        }
+      }
 
-      const product = normalizeName(client.line).includes('bio') ? 'BIO BANANA' : 'BANANA';
+      const key = normalizeName(`${client.customer} ${client.line || ''}`);
+      const glossaryData = glossaryMap.get(key);
+      const fullCustomer = customerNameMap.get(key) || capitalizeWords(`${client.customer} ${client.line || ''}`.trim());
 
-      const safeBoxPerPal = 24;
+      if (!glossaryData) {
+        console.warn(`❗ Не знайдено даних у glossary для: ${key}, використовуємо дефолтні`);
+      }
 
-      const weightPerBox = 0;
+      const product = glossaryData?.product || (normalizeName(client.line).includes('bio') ? 'BIO BANANA' : 'BANANA');
+      const weightPerBox = glossaryData?.weightPerBox ?? 19.79;
+      const safeBoxPerPal = glossaryData?.boxPerPal ?? 48;
+
       const grossWeight = qty * weightPerBox;
-
-      const fullPallets = Math.floor(qty / safeBoxPerPal);
-      const hasRemainder = qty % safeBoxPerPal > 0;
-      const pal = fullPallets + (hasRemainder ? 1 : 0);
-
-      if (rowExists(sheet, fullCustomer, qty, product)) continue;
+      const pal = Math.ceil(qty / safeBoxPerPal);
 
       const rowIndex = sheet.actualRowCount + 1;
       const row = sheet.getRow(rowIndex);
@@ -157,10 +159,21 @@ function askWeek() {
       row.getCell(20).value = '';
       row.getCell(21).value = '';
 
+      for (let col = 1; col <= 21; col++) {
+        row.getCell(col).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      }
+
       row.commit();
+      console.log(`✅ Додано рядок для "${fullCustomer}" у лист "${sheet.name}"`);
     }
   }
 
   await workbook.xlsx.writeFile(outputPath);
-  console.log(`✅ План успішно збережено: ${outputPath}`);
+  console.log(`✅ План збережено у файл: ${outputPath}`);
+  console.log(`@@@DONE:${week}`);
 })();
