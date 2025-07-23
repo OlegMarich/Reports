@@ -25,19 +25,28 @@ const templatePath = path.join(__dirname, 'template.xlsx');
 function getBoxesPerPallet(clientName) {
   const name = clientName.toLowerCase();
 
-  let boxesPerPallet = 1;
+  const rules = {
+    'aldi': 28,
+    'lidl': 48,
+    'biedronka': 28,
+    'spar hrvatska': 48,
+    'spar ljubljana': 48,
+    'spar': 32,
+    'penny': 32,
+    'metro': 28,
+    'ta-moro': 48,
+    'cba': 48,
+    'lunnys': 48,
+  };
 
-  if (name.includes('aldi')) boxesPerPallet = 28;
-  else if (name.includes('lidl')) boxesPerPallet = 48;
-  else if (name.includes('biedronka')) boxesPerPallet = 28;
-  else if (name.includes('spar hrvatska')) boxesPerPallet = 48;
-  else if (name.includes('spar ljubljana')) boxesPerPallet = 48;
-  else if (name.includes('spar')) boxesPerPallet = 32;
-  else if (name.includes('penny')) boxesPerPallet = 32;
-  else if (name.includes('metro')) boxesPerPallet = 28;
-  else if (name.includes('ta-moro')) boxesPerPallet = 48;
-  else if (name.includes('cba')) boxesPerPallet = 48;
-  else if (name.includes('lunnys')) boxesPerPallet = 48;
+  let boxesPerPallet = 1; // значення за замовчуванням
+
+  for (const [key, value] of Object.entries(rules)) {
+    if (name.includes(key)) {
+      boxesPerPallet = value;
+      break;
+    }
+  }
 
   // Якщо лише 1 ящик на палеті — додаємо ще 1 палету
   if (boxesPerPallet === 1) {
@@ -46,6 +55,7 @@ function getBoxesPerPallet(clientName) {
 
   return boxesPerPallet;
 }
+
 
 // 🧠 Групуємо записи по клієнтах
 const grouped = {};

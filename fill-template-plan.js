@@ -2,6 +2,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 
+// 🔠 Нормалізація назв
 function normalizeName(name) {
   return name
     .toLowerCase()
@@ -9,7 +10,7 @@ function normalizeName(name) {
     .replace(/\(.*?\)/g, '')
     .replace(/\bbananas?\b/gi, '')
     .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9 ]/gi, '') // додатково прибираємо спецсимволи
+    .replace(/[^a-z0-9 ]/gi, '')
     .trim();
 }
 
@@ -20,6 +21,29 @@ function capitalizeWords(str) {
 function getDayNameEng(date) {
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   return days[date.getDay()];
+}
+
+function findClosestGlossaryKey(searchKey, glossaryKeysArray) {
+  if (glossaryKeysArray.includes(searchKey)) return searchKey;
+  for (const key of glossaryKeysArray) {
+    if (key.includes(searchKey)) return key;
+  }
+  for (const key of glossaryKeysArray) {
+    if (searchKey.includes(key)) return key;
+  }
+  const firstWord = searchKey.split(' ')[0];
+  for (const key of glossaryKeysArray) {
+    if (key.startsWith(firstWord)) return key;
+  }
+  return null;
+}
+
+function detectProductFromText(text) {
+  const name = text.toLowerCase();
+  if (name.includes('bio')) return 'BIO banana';
+  if (name.includes('tomat')) return 'tomatoes';
+  if (name.includes('ananas') || name.includes('pineapple')) return 'ananas';
+  return 'banana';
 }
 
 (async () => {
@@ -67,9 +91,10 @@ function getDayNameEng(date) {
 
   glossarySheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
+
     const customerRaw = row.getCell(colIndexes.customer).text || '';
     const lineRaw = colIndexes.line ? row.getCell(colIndexes.line).text || '' : '';
-    const product = colIndexes.product ? row.getCell(colIndexes.product).text || 'BANANA' : 'BANANA';
+    const product = colIndexes.product ? row.getCell(colIndexes.product).text || 'banana' : 'banana';
 
     let weightPerBox = 19.79;
     const weightCell = row.getCell(colIndexes.weightPerBox).value;
@@ -83,10 +108,14 @@ function getDayNameEng(date) {
     customerNameMap.set(key, `${customerRaw} ${lineRaw}`.trim());
   });
 
+  const glossaryKeysArray = Array.from(glossaryMap.keys());
+
   const daySheetsMap = {};
   workbook.worksheets.forEach((sheet) => {
     const cleanName = sheet.name.trim().toLowerCase();
-    if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(cleanName)) {
+    if ([
+      'monday','tuesday','wednesday','thursday','friday','saturday','sunday'
+    ].includes(cleanName)) {
       daySheetsMap[cleanName] = sheet;
     }
   });
@@ -119,15 +148,15 @@ function getDayNameEng(date) {
         }
       }
 
-      const key = normalizeName(`${client.customer} ${client.line || ''}`);
-      const glossaryData = glossaryMap.get(key);
-      const fullCustomer = customerNameMap.get(key) || capitalizeWords(`${client.customer} ${client.line || ''}`.trim());
+      const rawKey = normalizeName(`${client.customer} ${client.line || ''}`);
+      const closestKey = findClosestGlossaryKey(rawKey, glossaryKeysArray);
 
-      if (!glossaryData) {
-        console.warn(`❗ Не знайдено даних у glossary для: ${key}, використовуємо дефолтні`);
-      }
+      const glossaryData = closestKey ? glossaryMap.get(closestKey) : null;
+      const fullCustomer = closestKey
+        ? customerNameMap.get(closestKey)
+        : capitalizeWords(`${client.customer} ${client.line || ''}`.trim());
 
-      const product = glossaryData?.product || (normalizeName(client.line).includes('bio') ? 'BIO BANANA' : 'BANANA');
+      const product = glossaryData?.product || detectProductFromText(`${client.customer} ${client.line || ''}`);
       const weightPerBox = glossaryData?.weightPerBox ?? 19.79;
       const safeBoxPerPal = glossaryData?.boxPerPal ?? 48;
 

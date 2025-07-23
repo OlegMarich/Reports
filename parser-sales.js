@@ -3,6 +3,18 @@ const fs = require('fs');
 const xlsx = require('xlsx');
 const inquirer = require('inquirer');
 
+// 🧠 Визначає тип продукту
+function detectProduct(customer, lineName) {
+  const name = `${customer} ${lineName}`.toLowerCase();
+
+  if (name.includes('bio')) return 'BIO banana';
+  if (name.includes('banana')) return 'banana';
+  if (name.includes('tomato') || name.includes('pomidor')) return 'tomatoes';
+  if (name.includes('ananas') || name.includes('pineapple')) return 'ananas';
+
+  return 'banana'; // значення за замовчуванням
+}
+
 // 📥 Зчитує файл SALES + повертає вибрану вкладку як масив рядків
 async function readSalesPlan() {
   const inputDir = path.join(__dirname, 'input');
@@ -181,11 +193,14 @@ function parseSalesByCustomer(sheetJson, dates) {
         qty: quantities[idx] || 0,
       }));
 
+      const product = detectProduct(currentCustomer, lineName);
+
       result.push({
         customer: currentCustomer,
         colorCode: currentColorCode,
         line: lineName,
         data,
+        product,
       });
     }
   }
