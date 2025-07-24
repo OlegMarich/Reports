@@ -1,6 +1,6 @@
 @echo off
 echo 🟢 Запуск локального сервера...
-start "" .\node\node.exe server.js
+start "" node server.js
 
 timeout /t 2 >nul
 

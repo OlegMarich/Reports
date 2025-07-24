@@ -8,14 +8,6 @@ function detectProduct(customer, lineName) {
   const name = `${customer} ${lineName}`.toLowerCase();
 
   if (name.includes('bio')) return 'BIO banana';
-  if (name.includes('banana')) return 'banana';
-  if (name.includes('tomato') || name.includes('pomidor')) return 'tomatoes';
-  if (name.includes('ananas') || name.includes('pineapple')) return 'ananas';
-
-  return 'banana'; // значення за замовчуванням
-}
-
-// 📥 Зчитує файл SALES + повертає вибрану вкладку як масив рядків
 async function readSalesPlan() {
   const inputDir = path.join(__dirname, 'input');
 
@@ -55,17 +47,25 @@ async function readSalesPlan() {
 
   if (process.argv[2]) {
     const inputWeek = process.argv[2].replace(/\D/g, '');
+
     const foundSheet = sheetNames.find((name) => {
-      const numbers = name.match(/\d+/g) || [];
-      return numbers.map((n) => n.trim()).includes(inputWeek);
+      const normalized = name.replace(/\s+/g, '').replace(/_/g, '').toLowerCase();
+      return (
+        normalized.includes(`week${inputWeek}`) ||
+        normalized.includes(`wk${inputWeek}`) ||
+        normalized === `${inputWeek}week` ||
+        normalized === `week${inputWeek}` ||
+        normalized === `wk${inputWeek}` ||
+        normalized === `${inputWeek}`
+      );
     });
 
     if (!foundSheet) {
-      console.error(
-        `❌ Вкладка з номером тижня "${inputWeek}" не знайдена серед: ${sheetNames.join(', ')}`,
-      );
+      console.error(`❌ Вкладка з номером тижня "${inputWeek}" не знайдена.`);
+      console.log('📄 Доступні вкладки:', sheetNames.join(', '));
       process.exit(1);
     }
+
     weekName = foundSheet;
   } else {
     const answer = await inquirer.prompt({
@@ -88,7 +88,7 @@ async function readSalesPlan() {
     header: 1,
   });
 
-  return {sheetJson, weekName, salesFile, sheet};
+  return { sheetJson, weekName, salesFile, sheet };
 }
 
 function extractDatesFromHeader(sheet) {
@@ -111,7 +111,7 @@ function extractDatesFromHeader(sheet) {
     .map((addr) => {
       const value = sheet[addr]?.v;
       if (typeof value === 'string') {
-        const match = value.match(/^(\d{1,2})[-\/](\d{1,2})$/);
+        const match = value.match(/^(\d{1,2})\.(\d{1,2})$/);
         if (match) {
           const day = match[1].padStart(2, '0');
           const month = match[2].padStart(2, '0');
@@ -199,6 +199,7 @@ function parseSalesByCustomer(sheetJson, dates) {
         customer: currentCustomer,
         colorCode: currentColorCode,
         line: lineName,
+        location: currentCityOrLocation,
         data,
         product,
       });
@@ -208,7 +209,7 @@ function parseSalesByCustomer(sheetJson, dates) {
 }
 
 async function main() {
-  const {sheetJson, weekName, salesFile, sheet} = await readSalesPlan();
+  const { sheetJson, weekName, salesFile, sheet } = await readSalesPlan();
   const dates = extractDatesFromHeader(sheet);
   if (!dates.length) {
     console.error('❌ Не знайдено жодної дати у рядку 3!');
@@ -221,7 +222,7 @@ async function main() {
   const weekNumber = weekNumberMatch ? weekNumberMatch[0] : 'unknown';
   const outputDir = path.join(__dirname, 'input', `${weekNumber}_Week`);
 
-  fs.mkdirSync(outputDir, {recursive: true});
+  fs.mkdirSync(outputDir, { recursive: true });
 
   const outputPath = path.join(outputDir, 'sales.json');
   fs.writeFileSync(outputPath, JSON.stringify(parsed, null, 2), 'utf8');
@@ -231,7 +232,7 @@ async function main() {
   console.log('🔢 Рядків зчитано:', sheetJson.length);
   console.log('📅 Знайдені дати:', dates);
   console.log('🔍 Знайдено клієнтських рядків:', parsed.length);
-  console.dir(parsed.slice(0, 5), {depth: null});
+  console.dir(parsed.slice(0, 5), { depth: null });
 }
 
 main();
