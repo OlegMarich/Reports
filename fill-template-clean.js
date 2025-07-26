@@ -24,7 +24,7 @@ const outputDir = path.join(__dirname, 'output', selectedDate);
 
 // 📄 Шлях до шаблону
 const templatePath = path.join(__dirname, 'clean-template.xlsx');
-const outputPath = path.join(outputDir, 'clean-template.xlsx');
+const outputPath = path.join(outputDir, `clean-template_${selectedDate}.xlsx`);
 
 // 🔁 Конвертація часу
 function convertExcelTime(timeFloat) {
