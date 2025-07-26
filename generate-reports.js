@@ -107,7 +107,7 @@ transportData.forEach(row => {
   if (!client) return;
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({ qty, pal, driver, loading, start });
+    aldiRows.push({ qty, pal, driver, loading, start, truck });
   } else {
     result.push({
       'Data wysyłki': date,
@@ -125,17 +125,18 @@ transportData.forEach(row => {
 if (aldiRows.length > 0) {
   const totalQty = aldiRows.reduce((sum, r) => sum + r.qty, 0);
   const totalPal = Math.ceil(aldiRows.reduce((sum, r) => sum + r.pal, 0)); // ✅ округлення підсумку
-  const last = aldiRows[aldiRows.length - 1];
-  result.push({
-    'Data wysyłki': date,
-    'Odbiorca': 'Aldi Lukovica',
-    'Ilość razem': totalQty,
-    'Kierowca': 'truck',
-    'Pal': totalPal,
-    'Driver': last.driver || '',
-    'Godzina': last.loading || '',
-    'Timewindow start': last.start || '',
-  });
+  const lastWithTruck = [...aldiRows].reverse().find(r => r.truck);
+result.push({
+  'Data wysyłki': date,
+  'Odbiorca': 'Aldi Lukovica',
+  'Ilość razem': totalQty,
+  'Kierowca': lastWithTruck?.truck || '',
+  'Pal': totalPal,
+  'Driver': lastWithTruck?.driver || '',
+  'Godzina': lastWithTruck?.loading || '',
+  'Timewindow start': lastWithTruck?.start || '',
+});
+
 }
 
 const outputPath = path.join(__dirname, 'output', date);
