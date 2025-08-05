@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
+const { exec } = require('child_process');
 
 const inputDir = path.join(__dirname, 'input');
 
@@ -22,7 +23,7 @@ if (userDateArg && /^\d{4}-\d{2}-\d{2}$/.test(userDateArg)) {
   date = today.toISOString().slice(0, 10);
 }
 
-// 🔍 Зчитування файлів
+// Зчитування файлів
 const files = fs.readdirSync(inputDir);
 const transportPlanFile = files.find(f => f.toLowerCase().includes('plan_week'));
 const salesPlanFile = files.find(f => f.toLowerCase().includes('sales plan'));
@@ -47,7 +48,7 @@ if (fs.statSync(salesPath).size === 0) {
 const transportWorkbook = xlsx.readFile(transportPath);
 const salesWorkbook = xlsx.readFile(salesPath);
 
-// 🧠 Пошук аркуша за датою
+// Пошук аркуша за датою
 function normalizeDateString(str) {
   return str.replace(/\D/g, '').padStart(4, '0');
 }
@@ -77,6 +78,80 @@ function normalizeRow(row) {
   return normalized;
 }
 
+function getBoxesPerPallet(clientName, product = '') {
+  const name = clientName.toLowerCase();
+  const prod = product.toLowerCase();
+
+  // За замовчуванням — індустріальна палета (48)
+  let boxesPerPallet = 48;
+
+  // PHP-палети (специфічні)
+  if (name.includes('aldi lukovica') && prod.includes('tomato')) {
+    boxesPerPallet = 56;
+  } else if (name.includes('aldi lukovica') && prod.includes('banana')) {
+    const match = name.match(/#(\d+)/);
+    if (match) {
+      const size = parseInt(match[1]);
+      if (!isNaN(size)) {
+        boxesPerPallet = size;
+      }
+    }
+  }
+  // EUR-палети
+  else if (
+    name.includes('penny') ||
+    name.includes('billa') ||
+    name.includes('spar') ||
+    name.includes('kaufland') ||
+    name.includes('biedronka') ||
+    name.includes('jmf') ||
+    (name.includes('yff') && name.includes('turda'))
+  ) {
+    boxesPerPallet = 32;
+  } else if (name.includes('aldi') && name.includes('biatorbagy')) {
+    if (prod.includes('banana')) {
+      boxesPerPallet = 28;
+    } else if (prod.includes('ananas')) {
+      boxesPerPallet = 40;
+    }
+  } else if (name.includes('jmp') && prod.includes('tomatoes')) {
+    boxesPerPallet = 72;
+  }
+
+  return boxesPerPallet;
+}
+
+function getPalletType(clientName, product = '') {
+  const name = clientName.toLowerCase();
+  const prod = product.toLowerCase();
+
+  // PHP mini / специфічні
+  if (name.includes('aldi lukovica') && prod.includes('banana')) {
+    if (name.match(/#\d+/)) {
+      return 'PHP mini';
+    }
+  }
+  if (name.includes('aldi lukovica') && prod.includes('tomato')) {
+    return 'PHP mini';
+  }
+
+  // EUR
+  if (
+    name.includes('penny') ||
+    name.includes('billa') ||
+    name.includes('spar') ||
+    name.includes('biedronka') ||
+    name.includes('jmf') ||
+    (name.includes('yff') && name.includes('turda')) ||
+    (name.includes('aldi') && name.includes('biatorbagy'))
+  ) {
+    return 'EURO pallet';
+  }
+
+  // За замовчуванням industrial
+  return 'INDUSTRIAL pallet';
+}
+
 function convertExcelTime(excelTime) {
   if (isNaN(excelTime)) return '';
   const totalMinutes = Math.round(excelTime * 24 * 60);
@@ -97,14 +172,19 @@ const aldiRows = [];
 transportData.forEach(row => {
   const r = normalizeRow(row);
   const client = r['customer'] || '';
+  const product = (r['product'] || '').toString();
   const qty = Number(r['qty']) || 0;
-  const pal = Math.ceil(Number(r['pal']) || 0); // ✅ округлення палет
+
+  if (!client) return;
+
+  const boxesPerPallet = getBoxesPerPallet(client, product);
+  const pal = boxesPerPallet ? Math.ceil(qty / boxesPerPallet) : 0;
+  const palletType = getPalletType(client, product);
+
   const truck = `${r['truck plate nr'] || ''} ${r['trailer plate nr'] || ''}`.trim();
   const driver = r['driver'] || '';
   const loading = convertExcelTime(Number(r['loading time']));
   const start = convertExcelTime(Number(r['timewindow start']));
-
-  if (!client) return;
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
     aldiRows.push({ qty, pal, driver, loading, start, truck });
@@ -115,6 +195,8 @@ transportData.forEach(row => {
       'Ilość razem': qty,
       'Kierowca': truck,
       'Pal': pal,
+      'Box per pallet': boxesPerPallet,
+      'Pallet type': palletType,
       'Driver': driver,
       'Godzina': loading,
       'Timewindow start': start,
@@ -123,20 +205,37 @@ transportData.forEach(row => {
 });
 
 if (aldiRows.length > 0) {
-  const totalQty = aldiRows.reduce((sum, r) => sum + r.qty, 0);
-  const totalPal = Math.ceil(aldiRows.reduce((sum, r) => sum + r.pal, 0)); // ✅ округлення підсумку
-  const lastWithTruck = [...aldiRows].reverse().find(r => r.truck);
-result.push({
-  'Data wysyłki': date,
-  'Odbiorca': 'Aldi Lukovica',
-  'Ilość razem': totalQty,
-  'Kierowca': lastWithTruck?.truck || '',
-  'Pal': totalPal,
-  'Driver': lastWithTruck?.driver || '',
-  'Godzina': lastWithTruck?.loading || '',
-  'Timewindow start': lastWithTruck?.start || '',
-});
+  const groupedByTruck = {};
 
+  aldiRows.forEach(row => {
+    const key = row.truck || 'unknown';
+    if (!groupedByTruck[key]) groupedByTruck[key] = [];
+    groupedByTruck[key].push(row);
+  });
+
+  for (const [truck, rows] of Object.entries(groupedByTruck)) {
+    const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
+    const totalPal = Math.ceil(rows.reduce((sum, r) => sum + r.pal, 0));
+
+    // Для Aldi Lukovica беремо тип/boxesPerPallet явно:
+    const boxesPerPallet = getBoxesPerPallet('Aldi Lukovica', 'banana');
+    const palletType = getPalletType('Aldi Lukovica', 'banana');
+
+    const lastRow = [...rows].reverse().find(r => r.driver || r.loading || r.start);
+
+    result.push({
+      'Data wysyłки': date,
+      'Odbiorca': 'Aldi Lukovica',
+      'Ilość razem': totalQty,
+      'Kierowca': truck,
+      'Pal': totalPal,
+      'Box per pallet': boxesPerPallet,
+      'Pallet type': palletType,
+      'Driver': lastRow?.driver || '',
+      'Godzina': lastRow?.loading || '',
+      'Timewindow start': lastRow?.start || '',
+    });
+  }
 }
 
 const outputPath = path.join(__dirname, 'output', date);
@@ -144,3 +243,6 @@ if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, { recursive: true });
 
 fs.writeFileSync(path.join(outputPath, 'data.json'), JSON.stringify(result, null, 2), 'utf-8');
 console.log(`✅ Збережено у: ${path.join(outputPath, 'data.json')}`);
+
+// Відкрити папку
+exec(`start "" "${outputPath}"`);

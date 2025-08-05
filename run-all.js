@@ -1,4 +1,4 @@
-const {exec} = require('child_process');
+const { exec } = require('child_process');
 const path = require('path');
 
 const dateArg = process.argv[2];
@@ -10,8 +10,8 @@ if (!dateArg) {
 const generateScript = path.join(__dirname, 'generate-reports.js');
 const loadingScript = path.join(__dirname, 'fill-template-loading.js');
 const templateScript = path.join(__dirname, 'fill-template-client.js');
+const shippingScript = path.join(__dirname, 'fill-shipping-card.js');
 const cleanScript = path.join(__dirname, 'fill-template-clean.js');
-const shippingScript = path.join(__dirname, 'fill-template-shipping.js');
 
 console.log('🚀 Generating report...');
 
@@ -38,15 +38,24 @@ exec(`node "${generateScript}" ${dateArg}`, (err, stdout, stderr) => {
       }
       console.log(stdout3);
 
-      console.log('📦 Filling clean template...');
-      exec(`node "${cleanScript}" ${dateArg}`, (err4, stdout4, stderr4) => {
+      console.log('📦 Filling shipping card templates...');
+      exec(`node "${shippingScript}" ${dateArg}`, (err4, stdout4, stderr4) => {
         if (err4) {
-          console.error('❌ Error during clean-template:', stderr4 || err4.message);
+          console.error('❌ Error during shipping-template:', stderr4 || err4.message);
           process.exit(1);
         }
         console.log(stdout4);
 
-        console.log('@@@DONE:' + dateArg);
+        console.log('📦 Filling clean template...');
+        exec(`node "${cleanScript}" ${dateArg}`, (err5, stdout5, stderr5) => {
+          if (err5) {
+            console.error('❌ Error during clean-template:', stderr5 || err5.message);
+            process.exit(1);
+          }
+          console.log(stdout5);
+
+          console.log('✅ @@@DONE:' + dateArg);
+        });
       });
     });
   });

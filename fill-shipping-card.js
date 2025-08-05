@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
 
-// ✅ 1. Отримання дати
+// ✅ Отримання дати
 const selectedDate = process.argv[2];
 if (!selectedDate) {
   console.error('❌ Не передано дату як аргумент');
@@ -16,75 +16,117 @@ if (!fs.existsSync(jsonPath)) {
 }
 
 const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-const outputDir = path.join(__dirname, 'output', selectedDate);
+const templatePath = path.join(__dirname, 'shipping card.xlsx');
 
-// 📄 Шлях до шаблону
-const templatePath = path.join(__dirname, 'shiping card.xlsx');
-
-// 📦 Обчислення кількості палет
-function getBoxesPerPallet(clientName) {
-  const name = clientName.toLowerCase();
-  let boxesPerPallet = 1;
-
-  if (name.includes('aldi')) boxesPerPallet = 28;
-  else if (name.includes('lidl')) boxesPerPallet = 48;
-  else if (name.includes('biedronka')) boxesPerPallet = 28;
-  else if (name.includes('spar hrvatska')) boxesPerPallet = 48;
-  else if (name.includes('spar ljubljana')) boxesPerPallet = 48;
-  else if (name.includes('spar')) boxesPerPallet = 32;
-  else if (name.includes('penny')) boxesPerPallet = 32;
-  else if (name.includes('metro')) boxesPerPallet = 28;
-  else if (name.includes('ta-moro')) boxesPerPallet = 48;
-  else if (name.includes('cba')) boxesPerPallet = 48;
-  else if (name.includes('lunnys')) boxesPerPallet = 48;
-
-  if (boxesPerPallet === 1) return 2;
-  return boxesPerPallet;
+function parseQty(value) {
+  if (typeof value === 'string') {
+    value = value.replace(',', '.').trim();
+  }
+  return Number(value) || 0;
 }
 
-// 🧠 Групуємо по клієнтах
-const grouped = {};
-data.forEach(entry => {
-  const client = entry['Odbiorca'];
-  if (!grouped[client]) grouped[client] = [];
-  grouped[client].push(entry);
-});
+// Нормалізуємо клієнта, прибираючи “(Bio bananas)” і подібне
+function canonicalClientName(name) {
+  if (!name) return '';
+  return name
+    .replace(/\( *bio[^\)]*\)/i, '') // прибрати (Bio ...)
+    .replace(/\( *\)/, '') // випадкові пусті дужки
+    .trim();
+}
 
-// 🧾 Генерація шаблонів
+// Групування по: канонічний клієнт + авто + дата
+function groupByMultipleOrders(data) {
+  const grouped = {};
+  data.forEach(entry => {
+    const clientRaw = entry['Odbiorca'];
+    const client = canonicalClientName(clientRaw);
+    const car = entry['Kierowca'];
+    const date = entry['Data wysyłki'];
+    const key = `${client}__${car}__${date}`;
+
+    if (!grouped[key]) grouped[key] = { entries: [], clientCanonical: client, clientRawList: new Set() };
+    grouped[key].entries.push(entry);
+    grouped[key].clientRawList.add(clientRaw);
+  });
+  return grouped;
+}
+
+const groupedOrders = groupByMultipleOrders(data);
+
 async function fillTemplate() {
-  for (const client in grouped) {
-    const entries = grouped[client];
-    const entry = entries[0];
+  for (const key in groupedOrders) {
+    const { entries, clientCanonical, clientRawList } = groupedOrders[key];
+    const first = entries[0];
 
-    const qty = Number(entry['Ilość razem'] || 0);
-    const pal = Number(entry['Pal'] || 0) || Math.ceil(qty / getBoxesPerPallet(client));
+    const clientDisplay = clientCanonical; // об’єднаний ім’я
+    const carNumber = first['Kierowca'];
+    const driver = first['Driver'] || '';
+    const shipDate = first['Data wysyłki'];
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
-
     const sheet = workbook.getWorksheet('KARTA');
+
     if (!sheet) {
-      console.error(`❌ Не знайдено аркуш "KARTA" для ${client}`);
+      console.error(`❌ Не знайдено аркуш "KARTA"`);
       continue;
     }
 
-    // 📌 Заповнення клітинок
-    sheet.getCell('A1').value = `KARTA WYSYŁKOWA/SHIPPING CARD     Data/Date ${entry['Data wysyłki'] || ''}`;
-    sheet.getCell('B11').value = entry['Kierowca'] || '';
-    sheet.getCell('B13').value = entry['Nr auta'] || '';
-    sheet.getCell('B15').value = client || '';
-    sheet.getCell('B20').value = entry['Godzina'] || '';
-    sheet.getCell('D26').value = qty;
-    sheet.getCell('H26').value = pal;
+    // Заголовки
+    sheet.getCell('A1').value = `KARTA WYSYŁKOWA/SHIPPING CARD`;
+    sheet.getCell('G1').value = `Data/Date: ${shipDate}`;
+    sheet.getCell('B11').value = `DRIVER: ${driver}`;
+    sheet.getCell('B13').value = `CAR NUMBER: ${carNumber}`;
+    sheet.getCell('B15').value = `DESTINATION: ${clientDisplay}`;
 
-    const safeClientName = client.replace(/[\\/:*?"<>|]/g, '_');
-    const outputPath = path.join(outputDir, `${safeClientName}_card.xlsx`);
+    // Групування по типу товару: стандартні (не bio) і bio
+    const totalConvQty = entries
+      .filter(e => !((e['Typ'] || '').toString().toLowerCase().includes('bio')))
+      .reduce((sum, e) => sum + parseQty(e['Ilość razem']), 0);
 
-    await workbook.xlsx.writeFile(outputPath);
-    console.log(`✅ Створено файл: ${outputPath}`);
+    const totalConvPal = entries
+      .filter(e => !((e['Typ'] || '').toString().toLowerCase().includes('bio')))
+      .reduce((sum, e) => sum + parseQty(e['Pal']), 0);
+
+    const totalBioQty = entries
+      .filter(e => ((e['Typ'] || '').toString().toLowerCase().includes('bio')))
+      .reduce((sum, e) => sum + parseQty(e['Ilość razem']), 0);
+
+    const totalBioPal = entries
+      .filter(e => ((e['Typ'] || '').toString().toLowerCase().includes('bio')))
+      .reduce((sum, e) => sum + parseQty(e['Pal']), 0);
+
+    const totalQty = totalConvQty + totalBioQty;
+
+    sheet.getCell('H3').value = totalQty;
+
+    if (totalConvQty > 0) {
+      sheet.getCell('A27').value = 'Banana';
+      sheet.getCell('D27').value = totalConvQty;
+      sheet.getCell('H27').value = totalConvPal;
+    }
+
+    if (totalBioQty > 0) {
+      sheet.getCell('A28').value = 'BIO banana';
+      sheet.getCell('D28').value = totalBioQty;
+      sheet.getCell('H28').value = totalBioPal;
+    }
+
+    // Збереження, використовуємо канонічне ім'я для папки (але можна включити оригінал)
+    const safeClient = clientDisplay.replace(/[\\/:*?"<>|]/g, '_');
+    const safeCar = carNumber.replace(/[\\/:*?"<>|]/g, '_');
+    const folderPath = path.join(__dirname, 'output', selectedDate, safeClient);
+
+    if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+
+    const fileName = `Shipping card ${safeClient} - ${safeCar}.xlsx`;
+    const filePath = path.join(folderPath, fileName);
+
+    await workbook.xlsx.writeFile(filePath);
+    console.log(`✅ Створено: ${filePath}`);
   }
 
-  console.log('🎉 Усі shipping cards згенеровано!');
+  console.log('🎉 Всі shipping cards створено!');
 }
 
 fillTemplate().catch(console.error);
