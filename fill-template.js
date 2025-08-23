@@ -26,9 +26,10 @@ function getBoxesPerPallet(clientName) {
   if (name.includes('aldi')) return 28;
   if (name.includes('lidl')) return 48;
   if (name.includes('biedronka')) return 28;
+  if (name.includes('spar')) return 32;
   if (name.includes('spar hrvatska')) return 48;
   if (name.includes('spar ljubljana')) return 48;
-  if (name.includes('spar')) return 32;
+  
 
   return 1; // За замовчуванням
 }
