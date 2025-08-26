@@ -2,66 +2,106 @@ const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
 
-// 📅 Сьогоднішня дата
-const today = new Date();
-const dateIso = today.toISOString().slice(0, 10); // YYYY-MM-DD
+// ✅ Отримання дати з аргументу
+const selectedDate = process.argv[2];
+if (!selectedDate) {
+  console.error('❌ Не передано дату як аргумент');
+  process.exit(1);
+}
 
-// 🧾 Шляхи
-const templatePath = path.join(__dirname, 'template.xlsx');
-const jsonPath = path.join(__dirname, 'output', dateIso, 'data.json');
-const outputDir = path.join(__dirname, 'output', dateIso);
-
-// ❗ Перевірка наявності JSON
+// 📥 Читання файлу data.json
+const jsonPath = path.join(__dirname, 'output', selectedDate, 'data.json');
 if (!fs.existsSync(jsonPath)) {
-  console.error(`❌ Файл ${jsonPath} не знайдено. Спочатку згенеруй його!`);
+  console.error(`❌ Не знайдено файл data.json для дати ${selectedDate}`);
   process.exit(1);
 }
 
 const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+const outputDir = path.join(__dirname, 'output', selectedDate);
+const templatePath = path.join(__dirname, 'template.xlsx');
 
-// 🧠 Кількість ящиків на палету для кожного клієнта
+// 📦 Логіка обчислення палет
 function getBoxesPerPallet(clientName) {
   const name = clientName.toLowerCase();
-
-  if (name.includes('aldi')) return 28;
-  if (name.includes('lidl')) return 48;
-  if (name.includes('biedronka')) return 28;
-  if (name.includes('spar')) return 32;
-  if (name.includes('spar hrvatska')) return 48;
-  if (name.includes('spar ljubljana')) return 48;
-  
-
-  return 1; // За замовчуванням
+  const rules = {
+    'aldi': 28,
+    'lidl': 48,
+    'biedronka': 28,
+    'spar hrvatska': 48,
+    'spar ljubljana': 48,
+    'spar': 32,
+    'penny': 32,
+    'metro': 28,
+    'ta-moro': 48,
+    'cba': 48,
+    'lunnys': 48,
+  };
+  let boxesPerPallet = 1;
+  for (const [key, value] of Object.entries(rules)) {
+    if (name.includes(key)) {
+      boxesPerPallet = value;
+      break;
+    }
+  }
+  return boxesPerPallet === 1 ? 2 : boxesPerPallet;
 }
 
+// 🔑 Групування по клієнту + авто
+function normalizeClientKey(entry) {
+  const client = entry['Odbiorca'].replace(/\s*\(.*bio.*\)/i, '').trim();
+  const truck = entry['Kierowca'] || 'unknown';
+  return `${client}__${truck}`;
+}
+
+const grouped = {};
+data.forEach((entry) => {
+  const key = normalizeClientKey(entry);
+  if (!grouped[key]) grouped[key] = [];
+  grouped[key].push(entry);
+});
+
+// 🧾 Генерація шаблонів
 async function fillTemplate() {
-  for (const entry of data) {
-    const newWorkbook = new ExcelJS.Workbook();
-    await newWorkbook.xlsx.readFile(templatePath);
-    const sheet = newWorkbook.getWorksheet('RAPORT WYDANIA F-NR 15');
+  for (const [key, entries] of Object.entries(grouped)) {
+    const [client, truck] = key.split('__');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
 
-    if (!sheet) {
-      console.error('❌ Аркуш "RAPORT WYDANIA F-NR 15" не знайдено в шаблоні!');
-      continue;
-    }
+    const mainSheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
+    const bioSheet = workbook.worksheets.find((ws) => ws.name.toLowerCase().includes('bio'));
 
-    const client = entry['Odbiorca'];
-    const qty = Number(entry['Ilość razem'] || 0);
-    const providedPal = Number(entry['Pal'] || 0);
+    entries.forEach((entry) => {
+      const produkt = (entry['Produkt'] || '').toLowerCase();
+      const typ = (entry['Typ'] || '').toLowerCase();
+      const isBio = produkt.includes('bio') || typ.includes('bio');
 
-    // Обчислення палет, якщо не задано
-    const pal = providedPal > 0 ? providedPal : Math.ceil(qty / getBoxesPerPallet(client));
+      const qty = Number(entry['Ilość razem'] || 0);
+      const pal = Number(entry['Pal'] || 0) || Math.ceil(qty / getBoxesPerPallet(client));
 
-    sheet.getCell('J8').value = entry['Data wysyłki'];
-    sheet.getCell('C8').value = client;
-    sheet.getCell('J25').value = `${qty} (${pal})`;
-    sheet.getCell('J29').value = entry['Kierowca'];
-    sheet.getCell('E10').value = entry['Godzina'];
+      if (isBio && bioSheet) {
+        bioSheet.getCell('J62').value = entry['Data wysyłki'] || '';
+        bioSheet.getCell('C62').value = client + ' (BIO)' || '';
+        bioSheet.getCell('J71').value = `${qty} (${pal})`;
+        bioSheet.getCell('K65').value = entry['Kierowca'] || '';
+        bioSheet.getCell('E63').value = entry['Godzina'] || '';
+      } else if (mainSheet) {
+        mainSheet.getCell('J8').value = entry['Data wysyłki'] || '';
+        mainSheet.getCell('C8').value = client || '';
+        mainSheet.getCell('J25').value = `${qty} (${pal})`;
+        mainSheet.getCell('J29').value = entry['Kierowca'] || '';
+        mainSheet.getCell('E10').value = entry['Godzina'] || '';
+      }
+    });
 
     const safeClientName = client.replace(/[\\/:*?"<>|]/g, '_');
-    const outputPath = path.join(outputDir, `${safeClientName}.xlsx`);
+    const safeTruck = truck.replace(/[\\/:*?"<>|]/g, '_');
+    const clientBaseDir = path.join(outputDir, safeClientName);
+    if (!fs.existsSync(clientBaseDir)) fs.mkdirSync(clientBaseDir, {recursive: true});
 
-    await newWorkbook.xlsx.writeFile(outputPath);
+    const fileName = `Quality report ${safeClientName}_${safeTruck}.xlsx`;
+    const outputPath = path.join(clientBaseDir, fileName);
+
+    await workbook.xlsx.writeFile(outputPath);
     console.log(`📄 Створено файл: ${outputPath}`);
   }
 

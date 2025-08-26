@@ -34,17 +34,28 @@ function canonicalClientName(name) {
     .trim();
 }
 
+// 🔎 Надійне визначення BIO
+function isBioEntry(entry) {
+  const odb = (entry['Odbiorca'] || '').toLowerCase();
+  const produkt = (entry['Produkt'] || '').toLowerCase();
+  const typ = (entry['Typ'] || '').toLowerCase();
+  const line = (entry['Linia'] || entry['Line'] || '').toLowerCase();
+  const re = /\bbio\b/;
+  return re.test(odb) || re.test(produkt) || re.test(typ) || re.test(line);
+}
+
 // Групування по: канонічний клієнт + авто + дата
 function groupByMultipleOrders(data) {
   const grouped = {};
-  data.forEach(entry => {
+  data.forEach((entry) => {
     const clientRaw = entry['Odbiorca'];
     const client = canonicalClientName(clientRaw);
     const car = entry['Kierowca'];
     const date = entry['Data wysyłki'];
     const key = `${client}__${car}__${date}`;
 
-    if (!grouped[key]) grouped[key] = { entries: [], clientCanonical: client, clientRawList: new Set() };
+    if (!grouped[key])
+      grouped[key] = {entries: [], clientCanonical: client, clientRawList: new Set()};
     grouped[key].entries.push(entry);
     grouped[key].clientRawList.add(clientRaw);
   });
@@ -55,10 +66,10 @@ const groupedOrders = groupByMultipleOrders(data);
 
 async function fillTemplate() {
   for (const key in groupedOrders) {
-    const { entries, clientCanonical, clientRawList } = groupedOrders[key];
+    const {entries, clientCanonical} = groupedOrders[key];
     const first = entries[0];
 
-    const clientDisplay = clientCanonical; // об’єднаний ім’я
+    const clientDisplay = clientCanonical;
     const carNumber = first['Kierowca'];
     const driver = first['Driver'] || '';
     const shipDate = first['Data wysyłki'];
@@ -66,6 +77,7 @@ async function fillTemplate() {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
     const sheet = workbook.getWorksheet('KARTA');
+    const palletType = first['Pallet type'] || '';
 
     if (!sheet) {
       console.error(`❌ Не знайдено аркуш "KARTA"`);
@@ -78,26 +90,25 @@ async function fillTemplate() {
     sheet.getCell('B11').value = `DRIVER: ${driver}`;
     sheet.getCell('B13').value = `CAR NUMBER: ${carNumber}`;
     sheet.getCell('B15').value = `DESTINATION: ${clientDisplay}`;
+    sheet.getCell('H26').value = `${palletType}`;
 
-    // Групування по типу товару: стандартні (не bio) і bio
-    const totalConvQty = entries
-      .filter(e => !((e['Typ'] || '').toString().toLowerCase().includes('bio')))
-      .reduce((sum, e) => sum + parseQty(e['Ilość razem']), 0);
+    // 📊 Підсумки
+    let totalConvQty = 0, totalConvPal = 0;
+    let totalBioQty = 0, totalBioPal = 0;
 
-    const totalConvPal = entries
-      .filter(e => !((e['Typ'] || '').toString().toLowerCase().includes('bio')))
-      .reduce((sum, e) => sum + parseQty(e['Pal']), 0);
-
-    const totalBioQty = entries
-      .filter(e => ((e['Typ'] || '').toString().toLowerCase().includes('bio')))
-      .reduce((sum, e) => sum + parseQty(e['Ilość razem']), 0);
-
-    const totalBioPal = entries
-      .filter(e => ((e['Typ'] || '').toString().toLowerCase().includes('bio')))
-      .reduce((sum, e) => sum + parseQty(e['Pal']), 0);
+    for (const e of entries) {
+      const qty = parseQty(e['Ilość razem']);
+      const pal = parseQty(e['Pal']);
+      if (isBioEntry(e)) {
+        totalBioQty += qty;
+        totalBioPal += pal;
+      } else {
+        totalConvQty += qty;
+        totalConvPal += pal;
+      }
+    }
 
     const totalQty = totalConvQty + totalBioQty;
-
     sheet.getCell('H3').value = totalQty;
 
     if (totalConvQty > 0) {
@@ -112,12 +123,12 @@ async function fillTemplate() {
       sheet.getCell('H28').value = totalBioPal;
     }
 
-    // Збереження, використовуємо канонічне ім'я для папки (але можна включити оригінал)
+    // Збереження
     const safeClient = clientDisplay.replace(/[\\/:*?"<>|]/g, '_');
     const safeCar = carNumber.replace(/[\\/:*?"<>|]/g, '_');
     const folderPath = path.join(__dirname, 'output', selectedDate, safeClient);
 
-    if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+    if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, {recursive: true});
 
     const fileName = `Shipping card ${safeClient} - ${safeCar}.xlsx`;
     const filePath = path.join(folderPath, fileName);

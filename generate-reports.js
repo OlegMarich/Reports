@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
-const { exec } = require('child_process');
+const {exec} = require('child_process');
 
 const inputDir = path.join(__dirname, 'input');
 
@@ -15,18 +15,18 @@ let date;
 if (userDateArg && /^\d{4}-\d{2}-\d{2}$/.test(userDateArg)) {
   const [year, month, day] = userDateArg.split('-');
   targetDate = `${day}.${month}`;
-  date = userDateArg;
+  date = userDateArg; // ← ISO формат тільки для імені папки
 } else {
   const currentDay = String(today.getDate()).padStart(2, '0');
   const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
   targetDate = `${currentDay}.${currentMonth}`;
-  date = today.toISOString().slice(0, 10);
+  date = today.toISOString().slice(0, 10); // ← ISO формат для папки
 }
 
 // Зчитування файлів
 const files = fs.readdirSync(inputDir);
-const transportPlanFile = files.find(f => f.toLowerCase().includes('plan_week'));
-const salesPlanFile = files.find(f => f.toLowerCase().includes('sales plan'));
+const transportPlanFile = files.find((f) => f.toLowerCase().includes('plan_week'));
+const salesPlanFile = files.find((f) => f.toLowerCase().includes('sales plan'));
 
 if (!transportPlanFile || !salesPlanFile) {
   console.error('❌ Файли не знайдено.');
@@ -55,7 +55,7 @@ function normalizeDateString(str) {
 
 function findSheetByDate(sheetNames, ddmm) {
   const normalizedTarget = normalizeDateString(ddmm);
-  return sheetNames.find(name => normalizeDateString(name).includes(normalizedTarget));
+  return sheetNames.find((name) => normalizeDateString(name).includes(normalizedTarget));
 }
 
 const matchedSheetName = findSheetByDate(transportWorkbook.SheetNames, targetDate);
@@ -67,8 +67,11 @@ if (!matchedSheetName) {
 const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
-const transportData = xlsx.utils.sheet_to_json(transportSheet, { defval: '', range: 0 });
-const salesData = xlsx.utils.sheet_to_json(salesSheet, { defval: '' });
+// ✅ Використовуємо назву аркуша як дату відправки (наприклад "31.07")
+const shipDate = matchedSheetName;
+
+const transportData = xlsx.utils.sheet_to_json(transportSheet, {defval: '', range: 0});
+const salesData = xlsx.utils.sheet_to_json(salesSheet, {defval: ''});
 
 function normalizeRow(row) {
   const normalized = {};
@@ -82,10 +85,8 @@ function getBoxesPerPallet(clientName, product = '') {
   const name = clientName.toLowerCase();
   const prod = product.toLowerCase();
 
-  // За замовчуванням — індустріальна палета (48)
   let boxesPerPallet = 48;
 
-  // PHP-палети (специфічні)
   if (name.includes('aldi lukovica') && prod.includes('tomato')) {
     boxesPerPallet = 56;
   } else if (name.includes('aldi lukovica') && prod.includes('banana')) {
@@ -97,7 +98,6 @@ function getBoxesPerPallet(clientName, product = '') {
       }
     }
   }
-  // EUR-палети
   else if (
     name.includes('penny') ||
     name.includes('billa') ||
@@ -125,7 +125,6 @@ function getPalletType(clientName, product = '') {
   const name = clientName.toLowerCase();
   const prod = product.toLowerCase();
 
-  // PHP mini / специфічні
   if (name.includes('aldi lukovica') && prod.includes('banana')) {
     if (name.match(/#\d+/)) {
       return 'PHP mini';
@@ -135,21 +134,20 @@ function getPalletType(clientName, product = '') {
     return 'PHP mini';
   }
 
-  // EUR
   if (
     name.includes('penny') ||
     name.includes('billa') ||
     name.includes('spar') ||
+    name.includes('metro') ||
     name.includes('biedronka') ||
     name.includes('jmf') ||
     (name.includes('yff') && name.includes('turda')) ||
     (name.includes('aldi') && name.includes('biatorbagy'))
   ) {
-    return 'EURO pallet';
+    return 'EUROPALLETS';
   }
 
-  // За замовчуванням industrial
-  return 'INDUSTRIAL pallet';
+  return 'INDUSTRIALPALLETS';
 }
 
 function convertExcelTime(excelTime) {
@@ -169,7 +167,7 @@ transportData.sort((a, b) => {
 const result = [];
 const aldiRows = [];
 
-transportData.forEach(row => {
+transportData.forEach((row) => {
   const r = normalizeRow(row);
   const client = r['customer'] || '';
   const product = (r['product'] || '').toString();
@@ -187,10 +185,10 @@ transportData.forEach(row => {
   const start = convertExcelTime(Number(r['timewindow start']));
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({ qty, pal, driver, loading, start, truck });
+    aldiRows.push({qty, pal, driver, loading, start, truck});
   } else {
     result.push({
-      'Data wysyłki': date,
+      'Data wysyłki': shipDate, // ✅ тепер дата з назви аркуша
       'Odbiorca': client,
       'Ilość razem': qty,
       'Kierowca': truck,
@@ -207,7 +205,7 @@ transportData.forEach(row => {
 if (aldiRows.length > 0) {
   const groupedByTruck = {};
 
-  aldiRows.forEach(row => {
+  aldiRows.forEach((row) => {
     const key = row.truck || 'unknown';
     if (!groupedByTruck[key]) groupedByTruck[key] = [];
     groupedByTruck[key].push(row);
@@ -217,14 +215,13 @@ if (aldiRows.length > 0) {
     const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
     const totalPal = Math.ceil(rows.reduce((sum, r) => sum + r.pal, 0));
 
-    // Для Aldi Lukovica беремо тип/boxesPerPallet явно:
     const boxesPerPallet = getBoxesPerPallet('Aldi Lukovica', 'banana');
     const palletType = getPalletType('Aldi Lukovica', 'banana');
 
-    const lastRow = [...rows].reverse().find(r => r.driver || r.loading || r.start);
+    const lastRow = [...rows].reverse().find((r) => r.driver || r.loading || r.start);
 
     result.push({
-      'Data wysyłки': date,
+      'Data wysyłki': shipDate, // ✅ для Aldi також
       'Odbiorca': 'Aldi Lukovica',
       'Ilość razem': totalQty,
       'Kierowca': truck,
@@ -238,8 +235,8 @@ if (aldiRows.length > 0) {
   }
 }
 
-const outputPath = path.join(__dirname, 'output', date);
-if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, { recursive: true });
+const outputPath = path.join(__dirname, 'output', date); // папка у форматі YYYY-MM-DD
+if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, {recursive: true});
 
 fs.writeFileSync(path.join(outputPath, 'data.json'), JSON.stringify(result, null, 2), 'utf-8');
 console.log(`✅ Збережено у: ${path.join(outputPath, 'data.json')}`);

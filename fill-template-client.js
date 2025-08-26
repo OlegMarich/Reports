@@ -1,3 +1,4 @@
+
 const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
@@ -22,7 +23,7 @@ const templatePath = path.join(__dirname, 'template.xlsx');
 
 // 📦 Логіка обчислення палет
 function getBoxesPerPallet(clientName) {
-  const name = clientName.toLowerCase();
+  const name = (clientName || '').toLowerCase();
   const rules = {
     'aldi': 28, 'lidl': 48, 'biedronka': 28, 'spar hrvatska': 48,
     'spar ljubljana': 48, 'spar': 32, 'penny': 32, 'metro': 28,
@@ -40,17 +41,29 @@ function getBoxesPerPallet(clientName) {
 
 // 🔑 Групування по клієнту + авто
 function normalizeClientKey(entry) {
-  const client = entry['Odbiorca'].replace(/\s*\(.*bio.*\)/i, '').trim();
+  const client = (entry['Odbiorca'] || '').replace(/\s*\(.*bio.*\)/i, '').trim();
   const truck = entry['Kierowca'] || 'unknown';
   return `${client}__${truck}`;
 }
 
+// 🧠 Надійне визначення BIO
+function isBioEntry(entry) {
+  const odb = (entry['Odbiorca'] || '').toLowerCase();
+  const produkt = (entry['Produkt'] || '').toLowerCase();
+  const typ = (entry['Typ'] || '').toLowerCase();
+  const line = (entry['Linia'] || entry['Line'] || entry['Nazwa linii'] || '').toLowerCase();
+  // вважаємо BIO, якщо зустрічається слово "bio" в будь-якому з полів
+  // використовуємо \bbio\b щоб уникати випадкових збігів типу "biodegradable"
+  const re = /\bbio\b/;
+  return re.test(odb) || re.test(produkt) || re.test(typ) || re.test(line);
+}
+
 const grouped = {};
-data.forEach((entry) => {
+for (const entry of data) {
   const key = normalizeClientKey(entry);
   if (!grouped[key]) grouped[key] = [];
   grouped[key].push(entry);
-});
+}
 
 // 🧾 Генерація шаблонів
 async function fillTemplate() {
@@ -60,31 +73,58 @@ async function fillTemplate() {
     await workbook.xlsx.readFile(templatePath);
 
     const mainSheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
-    const bioSheet = workbook.worksheets.find(ws => ws.name.toLowerCase().includes('bio'));
+    if (!mainSheet) {
+      console.error('❌ Не знайдено аркуш "RAPORT WYDANIA F-NR 15" у шаблоні');
+      continue;
+    }
 
-    entries.forEach((entry) => {
-      const produkt = (entry['Produkt'] || '').toLowerCase();
-      const typ = (entry['Typ'] || '').toLowerCase();
-      const isBio = produkt.includes('bio') || typ.includes('bio');
+    // 📊 Агрегуємо банани та біо-банани окремо + зберігаємо перший запис для метаданих
+    const totals = { banana: { qty: 0, pal: 0 }, bio: { qty: 0, pal: 0 } };
+    let firstBanana = null;
+    let firstBio = null;
 
+    for (const entry of entries) {
       const qty = Number(entry['Ilość razem'] || 0);
-      const pal = Number(entry['Pal'] || 0) || Math.ceil(qty / getBoxesPerPallet(client));
+      const palGiven = Number(entry['Pal'] || 0);
+      const isBio = isBioEntry(entry);
 
-      if (isBio && bioSheet) {
-        bioSheet.getCell('J62').value = entry['Data wysyłki'] || '';
-        bioSheet.getCell('C62').value = client + ' (BIO)' || '';
-        bioSheet.getCell('J71').value = `${qty} (${pal})`;
-        bioSheet.getCell('K65').value = entry['Kierowca'] || '';
-        bioSheet.getCell('E63').value = entry['Godzina'] || '';
-      } else if (mainSheet) {
-        mainSheet.getCell('J8').value = entry['Data wysyłki'] || '';
-        mainSheet.getCell('C8').value = client || '';
-        mainSheet.getCell('J25').value = `${qty} (${pal})`;
-        mainSheet.getCell('J29').value = entry['Kierowca'] || '';
-        mainSheet.getCell('E10').value = entry['Godzina'] || '';
+      const pal = palGiven > 0 ? palGiven : (qty > 0 ? Math.ceil(qty / getBoxesPerPallet(client)) : 0);
+
+      if (isBio) {
+        totals.bio.qty += qty;
+        totals.bio.pal += pal;
+        if (!firstBio) firstBio = entry;
+      } else {
+        totals.banana.qty += qty;
+        totals.banana.pal += pal;
+        if (!firstBanana) firstBanana = entry;
       }
-    });
+    }
 
+    // 🖊 Записуємо у верхній блок (банани)
+    if (totals.banana.qty > 0) {
+      const e = firstBanana || entries[0];
+      mainSheet.getCell('J8').value = e['Data wysyłki'] || '';
+      mainSheet.getCell('C8').value = client || '';
+      mainSheet.getCell('J25').value = `${totals.banana.qty} (${totals.banana.pal})`;
+      mainSheet.getCell('J29').value = e['Kierowca'] || '';
+      mainSheet.getCell('E10').value = e['Godzina'] || '';
+    }
+
+    // 🖊 Записуємо у нижній блок (BIO) на тому ж аркуші
+    if (totals.bio.qty > 0) {
+      const e = firstBio || entries[0];
+      mainSheet.getCell('J60').value = e['Data wysyłki'] || '';
+      mainSheet.getCell('C60').value = `${client} (BIO)`;
+      mainSheet.getCell('J69').value = `${totals.bio.qty} (${totals.bio.pal})`;
+      mainSheet.getCell('K63').value = e['Kierowca'] || '';
+      mainSheet.getCell('E61').value = e['Godzina'] || '';
+    }
+
+    // 🔍 Лог для контролю класифікації
+    console.log(`➡️  ${client} [${truck}]  banana=${totals.banana.qty} / bio=${totals.bio.qty}`);
+
+    // 📂 Збереження файлу
     const safeClientName = client.replace(/[\\/:*?"<>|]/g, '_');
     const safeTruck = truck.replace(/[\\/:*?"<>|]/g, '_');
     const clientBaseDir = path.join(outputDir, safeClientName);
@@ -100,4 +140,7 @@ async function fillTemplate() {
   console.log('✅ Усі звіти згенеровано успішно!');
 }
 
-fillTemplate().catch(console.error);
+fillTemplate().catch(err => {
+  console.error('❌ Помилка:', err);
+  process.exit(1);
+});
