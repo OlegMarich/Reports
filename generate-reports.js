@@ -68,7 +68,7 @@ const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
 // ✅ Використовуємо назву аркуша як дату відправки (наприклад "31.07")
-const shipDate = matchedSheetName;
+const shipDate = date;
 
 const transportData = xlsx.utils.sheet_to_json(transportSheet, {defval: '', range: 0});
 const salesData = xlsx.utils.sheet_to_json(salesSheet, {defval: ''});
