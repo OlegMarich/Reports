@@ -144,10 +144,10 @@ function getPalletType(clientName, product = '') {
     (name.includes('yff') && name.includes('turda')) ||
     (name.includes('aldi') && name.includes('biatorbagy'))
   ) {
-    return 'EUROPALLETS';
+    return 'EURO PALLETS';
   }
 
-  return 'INDUSTRIALPALLETS';
+  return 'IND. PALLETS';
 }
 
 function convertExcelTime(excelTime) {

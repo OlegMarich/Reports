@@ -43,7 +43,12 @@ data.sort((a, b) => {
   await workbook.xlsx.readFile(templatePath);
   const sheet = workbook.getWorksheet(1);
 
-  let currentRow = 2;
+  // 📅 Вставка дати у перший рядок
+  const headerRow = sheet.getRow(1);
+  headerRow.getCell('A').value = selectedDate;
+  headerRow.commit();
+
+  let currentRow = 3;
 
   const borderStyle = {
     top: { style: 'thin' },
@@ -95,9 +100,8 @@ data.sort((a, b) => {
     currentRow++;
   }
 
-
   // 🔲 Обведення клітинок
-  const startRow = 2;
+  const startRow = 3;
   const endRow = currentRow - 1;
   for (let rowNum = startRow; rowNum <= endRow; rowNum++) {
     const row = sheet.getRow(rowNum);
