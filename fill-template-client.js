@@ -25,8 +25,8 @@ const templatePath = path.join(__dirname, 'template.xlsx');
 function getBoxesPerPallet(clientName) {
   const name = (clientName || '').toLowerCase();
   const rules = {
-    'aldi': 28, 'lidl': 48, 'biedronka': 28, 'spar hrvatska': 48,
-    'spar ljubljana': 48, 'spar': 32, 'penny': 32, 'metro': 28,
+    'aldi': 28, 'lidl': 48, 'spar': 32, 'biedronka': 28, 'spar hrvatska': 48,
+    'spar ljubljana': 48, 'penny': 32, 'metro': 28,
     'ta-moro': 48, 'cba': 48, 'lunnys': 48,
   };
   let boxesPerPallet = 1;
