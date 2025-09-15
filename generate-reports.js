@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const xlsx = require('xlsx');
-const {exec} = require('child_process');
+const { exec } = require('child_process');
 
 const inputDir = path.join(__dirname, 'input');
 
@@ -15,12 +15,12 @@ let date;
 if (userDateArg && /^\d{4}-\d{2}-\d{2}$/.test(userDateArg)) {
   const [year, month, day] = userDateArg.split('-');
   targetDate = `${day}.${month}`;
-  date = userDateArg; // ← ISO формат тільки для імені папки
+  date = userDateArg;
 } else {
   const currentDay = String(today.getDate()).padStart(2, '0');
   const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
   targetDate = `${currentDay}.${currentMonth}`;
-  date = today.toISOString().slice(0, 10); // ← ISO формат для папки
+  date = today.toISOString().slice(0, 10);
 }
 
 // Зчитування файлів
@@ -67,11 +67,10 @@ if (!matchedSheetName) {
 const transportSheet = transportWorkbook.Sheets[matchedSheetName];
 const salesSheet = salesWorkbook.Sheets[salesWorkbook.SheetNames[0]];
 
-// ✅ Використовуємо назву аркуша як дату відправки (наприклад "31.07")
 const shipDate = date;
 
-const transportData = xlsx.utils.sheet_to_json(transportSheet, {defval: '', range: 0});
-const salesData = xlsx.utils.sheet_to_json(salesSheet, {defval: ''});
+const transportData = xlsx.utils.sheet_to_json(transportSheet, { defval: '', range: 0 });
+const salesData = xlsx.utils.sheet_to_json(salesSheet, { defval: '' });
 
 function normalizeRow(row) {
   const normalized = {};
@@ -97,11 +96,11 @@ function getBoxesPerPallet(clientName, product = '') {
         boxesPerPallet = size;
       }
     }
-  }
-  else if (
+  } else if (
     name.includes('penny') ||
     name.includes('billa') ||
-    name.includes('spar') ||
+    name.includes('ullo') ||
+    name.includes('bicske') ||
     name.includes('kaufland') ||
     name.includes('biedronka') ||
     name.includes('jmf') ||
@@ -116,6 +115,8 @@ function getBoxesPerPallet(clientName, product = '') {
     }
   } else if (name.includes('jmp') && prod.includes('tomatoes')) {
     boxesPerPallet = 72;
+  } else if (name.includes('horti')) {
+    boxesPerPallet = 54;
   }
 
   return boxesPerPallet;
@@ -185,10 +186,10 @@ transportData.forEach((row) => {
   const start = convertExcelTime(Number(r['timewindow start']));
 
   if (client.toLowerCase().includes('aldi') && client.toLowerCase().includes('lukovica')) {
-    aldiRows.push({qty, pal, driver, loading, start, truck});
+    aldiRows.push({ qty, pal, driver, loading, start, truck });
   } else {
     result.push({
-      'Data wysyłki': shipDate, // ✅ тепер дата з назви аркуша
+      'Data wysyłki': shipDate,
       'Odbiorca': client,
       'Ilość razem': qty,
       'Kierowca': truck,
@@ -221,7 +222,7 @@ if (aldiRows.length > 0) {
     const lastRow = [...rows].reverse().find((r) => r.driver || r.loading || r.start);
 
     result.push({
-      'Data wysyłki': shipDate, // ✅ для Aldi також
+      'Data wysyłki': shipDate,
       'Odbiorca': 'Aldi Lukovica',
       'Ilość razem': totalQty,
       'Kierowca': truck,
@@ -235,8 +236,8 @@ if (aldiRows.length > 0) {
   }
 }
 
-const outputPath = path.join(__dirname, 'output', date); // папка у форматі YYYY-MM-DD
-if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, {recursive: true});
+const outputPath = path.join(__dirname, 'output', date);
+if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath, { recursive: true });
 
 fs.writeFileSync(path.join(outputPath, 'data.json'), JSON.stringify(result, null, 2), 'utf-8');
 console.log(`✅ Збережено у: ${path.join(outputPath, 'data.json')}`);
