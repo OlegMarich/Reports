@@ -8,6 +8,10 @@ function detectProduct(customer, lineName) {
   const name = `${customer} ${lineName}`.toLowerCase();
 
   if (name.includes('bio')) return 'BIO banana';
+
+  return 'banana';
+}
+
 async function readSalesPlan() {
   const inputDir = path.join(__dirname, 'input');
 
@@ -45,28 +49,37 @@ async function readSalesPlan() {
   let weekName;
   const sheetNames = workbook.SheetNames;
 
-  if (process.argv[2]) {
-    const inputWeek = process.argv[2].replace(/\D/g, '');
+  // 📌 Об'єднуємо всі аргументи у єдиний рядок (щоб "40 WEEK" працювало без лапок)
+  const argSheet = process.argv.slice(2).join(" ").trim();
 
-    const foundSheet = sheetNames.find((name) => {
-      const normalized = name.replace(/\s+/g, '').replace(/_/g, '').toLowerCase();
-      return (
-        normalized.includes(`week${inputWeek}`) ||
-        normalized.includes(`wk${inputWeek}`) ||
-        normalized === `${inputWeek}week` ||
-        normalized === `week${inputWeek}` ||
-        normalized === `wk${inputWeek}` ||
-        normalized === `${inputWeek}`
-      );
-    });
+  if (argSheet) {
+    // Якщо введене точне ім'я вкладки
+    const foundExact = sheetNames.find((name) => name.toLowerCase() === argSheet.toLowerCase());
+    if (foundExact) {
+      weekName = foundExact;
+    } else {
+      // Якщо ввели тільки номер тижня (наприклад 40)
+      const inputWeek = argSheet.replace(/\D/g, '');
+      const foundSheet = sheetNames.find((name) => {
+        const normalized = name.replace(/\s+/g, '').replace(/_/g, '').toLowerCase();
+        return (
+          normalized.includes(`week${inputWeek}`) ||
+          normalized.includes(`wk${inputWeek}`) ||
+          normalized === `${inputWeek}week` ||
+          normalized === `week${inputWeek}` ||
+          normalized === `wk${inputWeek}` ||
+          normalized === `${inputWeek}`
+        );
+      });
 
-    if (!foundSheet) {
-      console.error(`❌ Вкладка з номером тижня "${inputWeek}" не знайдена.`);
-      console.log('📄 Доступні вкладки:', sheetNames.join(', '));
-      process.exit(1);
+      if (!foundSheet) {
+        console.error(`❌ Вкладка з номером тижня або назвою "${argSheet}" не знайдена.`);
+        console.log('📄 Доступні вкладки:', sheetNames.join(', '));
+        process.exit(1);
+      }
+
+      weekName = foundSheet;
     }
-
-    weekName = foundSheet;
   } else {
     const answer = await inquirer.prompt({
       type: 'list',

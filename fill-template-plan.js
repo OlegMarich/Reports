@@ -46,6 +46,17 @@ function detectProductFromText(text) {
   return 'banana';
 }
 
+// 🔧 Форматування імені для Excel
+function formatCustomerExcelName(customer, location, product) {
+  let parts = [customer, location];
+  if (product.toLowerCase().includes('bio')) {
+    parts.push('BIO ' + product.replace(/BIO\s*/i, '').trim());
+  } else {
+    parts.push(product);
+  }
+  return parts.filter(Boolean).map(capitalizeWords).join(' ').replace(/\s+/g, ' ').trim();
+}
+
 (async () => {
   const week = process.argv[2];
   if (!week) {
@@ -103,9 +114,9 @@ function detectProductFromText(text) {
 
     const boxPerPal = colIndexes.boxPerPal ? parseInt(row.getCell(colIndexes.boxPerPal).value) || 32 : 32;
 
-    const key = normalizeName(`${customerRaw} ${lineRaw}`);
+    const key = normalizeName(`${customerRaw} ${lineRaw} ${product}`);
     glossaryMap.set(key, { product, weightPerBox, boxPerPal });
-    customerNameMap.set(key, `${customerRaw} ${lineRaw}`.trim());
+    customerNameMap.set(key, `${customerRaw} ${lineRaw} ${product}`.trim());
   });
 
   const glossaryKeysArray = Array.from(glossaryMap.keys());
@@ -113,9 +124,7 @@ function detectProductFromText(text) {
   const daySheetsMap = {};
   workbook.worksheets.forEach((sheet) => {
     const cleanName = sheet.name.trim().toLowerCase();
-    if ([
-      'monday','tuesday','wednesday','thursday','friday','saturday','sunday'
-    ].includes(cleanName)) {
+    if (['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].includes(cleanName)) {
       daySheetsMap[cleanName] = sheet;
     }
   });
@@ -148,15 +157,15 @@ function detectProductFromText(text) {
         }
       }
 
-      const rawKey = normalizeName(`${client.customer} ${client.line || ''}`);
+      // --- Формуємо ключ для Excel ---
+      const location = client.location || '';
+      const product = client.product || detectProductFromText(`${client.customer} ${client.line || ''}`);
+      const fullCustomer = formatCustomerExcelName(client.customer, location, product);
+
+      const rawKey = normalizeName(`${client.customer} ${location} ${product}`);
       const closestKey = findClosestGlossaryKey(rawKey, glossaryKeysArray);
-
       const glossaryData = closestKey ? glossaryMap.get(closestKey) : null;
-      const fullCustomer = closestKey
-        ? customerNameMap.get(closestKey)
-        : capitalizeWords(`${client.customer} ${client.line || ''}`.trim());
 
-      const product = glossaryData?.product || detectProductFromText(`${client.customer} ${client.line || ''}`);
       const weightPerBox = glossaryData?.weightPerBox ?? 19.79;
       const safeBoxPerPal = glossaryData?.boxPerPal ?? 48;
 
