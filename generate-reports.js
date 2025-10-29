@@ -80,6 +80,7 @@ function normalizeRow(row) {
   return normalized;
 }
 
+
 function getBoxesPerPallet(clientName, product = '') {
   const name = clientName.toLowerCase();
   const prod = product.toLowerCase();
@@ -107,13 +108,15 @@ function getBoxesPerPallet(clientName, product = '') {
     (name.includes('yff') && name.includes('turda'))
   ) {
     boxesPerPallet = 32;
-  } else if (name.includes('aldi') && name.includes('biatorbagy')) {
-    if (prod.includes('banana')) {
-      boxesPerPallet = 28;
-    } else if (prod.includes('ananas')) {
-      boxesPerPallet = 40;
-    }
-  } else if (name.includes('jmp') && prod.includes('tomatoes')) {
+  } else if (
+    name.includes('metro') ||
+    name.includes('terno') ||
+    (name.includes('aldi') && name.includes('biatorbagy'))
+  ) {
+    boxesPerPallet = 28;
+  } else if (prod.includes('ananas')) {
+    boxesPerPallet = 40;
+  } else if (prod.includes('tomatoes')) {
     boxesPerPallet = 72;
   } else if (name.includes('horti')) {
     boxesPerPallet = 54;
@@ -121,6 +124,8 @@ function getBoxesPerPallet(clientName, product = '') {
 
   return boxesPerPallet;
 }
+
+
 
 function getPalletType(clientName, product = '') {
   const name = clientName.toLowerCase();
