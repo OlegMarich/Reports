@@ -66,6 +66,7 @@ data.sort((a, b) => {
     const loadingTime = entry['Godzina'] || '';
     const timeWindow = entry['Timewindow start'] || '';
     const qty = entry['Ilość razem'] || '';
+    
 
     // ✅ Округлення палет вгору
     let pal = entry['Pal'] || '';
@@ -86,6 +87,7 @@ data.sort((a, b) => {
       { col: 'F', value: timeWindow },
       { col: 'G', value: qty },
       { col: 'H', value: pal },
+     
     ];
 
     for (const { col, value } of cells) {
@@ -105,7 +107,7 @@ data.sort((a, b) => {
   const endRow = currentRow - 1;
   for (let rowNum = startRow; rowNum <= endRow; rowNum++) {
     const row = sheet.getRow(rowNum);
-    for (let col = 1; col <= 9; col++) {
+    for (let col = 1; col <= 10; col++) {
       const cell = row.getCell(col);
       if (!cell.border || !cell.border.top) {
         cell.border = borderStyle;
