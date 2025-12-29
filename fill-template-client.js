@@ -1,4 +1,3 @@
-
 const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
@@ -44,9 +43,17 @@ try {
 function getBoxesPerPallet(clientName) {
   const name = (clientName || '').toLowerCase();
   const rules = {
-    'aldi': 28, 'lidl': 48, 'spar': 32, 'biedronka': 28, 'spar hrvatska': 48,
-    'spar ljubljana': 48, 'penny': 32, 'metro': 28,
-    'ta-moro': 48, 'cba': 48, 'lunnys': 48,
+    aldi: 28,
+    lidl: 48,
+    spar: 32,
+    biedronka: 28,
+    'spar hrvatska': 48,
+    'spar ljubljana': 48,
+    penny: 32,
+    metro: 28,
+    'ta-moro': 48,
+    cba: 48,
+    lunnys: 48,
   };
   let boxesPerPallet = 1;
   for (const [key, value] of Object.entries(rules)) {
@@ -85,7 +92,11 @@ function normalizeTime(t) {
 
 // 🧹 Безпечні імена для файлів/папок
 function safeName(s) {
-  return String(s || '').replace(/[\\/:*?"<>|]/g, '_').trim() || 'unknown';
+  return (
+    String(s || '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim() || 'unknown'
+  );
 }
 
 // 🔢 Глобальний лічильник файлів
@@ -95,80 +106,158 @@ let globalIndex = 0;
  * 🧾 Генерація звіту для КОЖНОГО запису (без агрегування)
  * Верхній блок — звичайні банани; нижній блок — BIO
  */
-async function fillTemplateNoGrouping() {
-  let processed = 0;
+// async function fillTemplateNoGrouping() {
+//   let processed = 0;
 
+//   for (const entry of data) {
+//     try {
+//       const workbook = new ExcelJS.Workbook();
+//       await workbook.xlsx.readFile(templatePath);
+
+//       const mainSheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
+//       if (!mainSheet) {
+//         console.error('❌ Не знайдено аркуш "RAPORT WYDANIA F-NR 15" у шаблоні — пропускаю запис.');
+//         continue;
+//       }
+
+//       // 🧩 Поля запису
+//       const client = (entry['Odbiorca'] || '').replace(/\s*\(.*bio.*\)/i, '').trim();
+//       const truck = (entry['Kierowca'] || 'unknown').trim();
+//       const date = (entry['Data wysyłki'] || '').trim();
+//       const time = normalizeTime((entry['Godzina'] || '').trim());
+
+//       const qty = Number(entry['Ilość razem'] || 0);
+//       const palGiven = Number(entry['Pal'] || 0);
+//       const isBio = isBioEntry(entry);
+
+//       const boxesPerPallet = getBoxesPerPallet(client);
+//       const pal = palGiven > 0 ? palGiven : qty > 0 ? Math.ceil(qty / boxesPerPallet) : 0;
+
+//       // 🖊 Заповнення шаблону
+//       if (!isBio) {
+//         // Верхній блок (банани)
+//         mainSheet.getCell('J8').value = date;
+//         mainSheet.getCell('C8').value = client;
+//         mainSheet.getCell('J25').value = `${qty} (${pal})`;
+//         mainSheet.getCell('J29').value = truck;
+//         mainSheet.getCell('E10').value = time;
+//       } else {
+//         // Нижній блок (BIO)
+//         mainSheet.getCell('J58').value = date;
+//         mainSheet.getCell('C58').value = `${client} (BIO)`;
+//         mainSheet.getCell('J67').value = `${qty} (${pal})`;
+//         mainSheet.getCell('K61').value = truck;
+//         mainSheet.getCell('E59').value = time;
+//       }
+
+//       // 📂 Збереження у папку клієнта
+//       const safeClientName = safeName(client);
+//       const safeTruck = safeName(truck);
+//       const clientBaseDir = path.join(outputDir, safeClientName);
+//       if (!fs.existsSync(clientBaseDir)) fs.mkdirSync(clientBaseDir, {recursive: true});
+
+//       // ✅ Формуємо ім'я файлу лише з глобальним номером
+//       globalIndex += 1; // 1, 2, 3 ...
+//       // const suffix = isBio ? 'BIO' : 'BAN';
+//       const fileName = `Quality report ${globalIndex} - ${safeClientName}_${safeTruck}.xlsx`;
+//       const outputPath = path.join(clientBaseDir, fileName);
+
+//       await workbook.xlsx.writeFile(outputPath);
+//       processed += 1;
+
+//       console.log(`📄 Створено файл (#${processed}): ${outputPath}`);
+//     } catch (err) {
+//       console.error('❌ Помилка при генерації запису:', err);
+//     }
+//   }
+
+//   if (processed === 0) {
+//     console.warn('⚠️ Не згенеровано жодного файлу. Можливо, дані порожні або шаблон некоректний.');
+//   } else {
+//     console.log(`✅ Усі звіти згенеровано успішно! Кількість: ${processed}`);
+//   }
+// }
+
+// ▶️ Запуск
+// fillTemplateNoGrouping().catch((err) => {
+//   console.error('❌ Критична помилка:', err);
+//   process.exit(1);
+// });
+
+async function fillTemplateGroupedByClientAndTruck() {
+  const groups = new Map();
+
+  // 🔹 Групування
   for (const entry of data) {
-    try {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(templatePath);
+    const client = (entry['Odbiorca'] || '').replace(/\s*\(.*bio.*\)/i, '').trim();
+    const truck = (entry['Kierowca'] || '').trim();
+    const key = `${client}__${truck}`;
 
-      const mainSheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
-      if (!mainSheet) {
-        console.error('❌ Не знайдено аркуш "RAPORT WYDANIA F-NR 15" у шаблоні — пропускаю запис.');
-        continue;
-      }
+    if (!groups.has(key)) groups.set(key, {client, truck, ban: null, bio: null});
 
-      // 🧩 Поля запису
-      const client = (entry['Odbiorca'] || '').replace(/\s*\(.*bio.*\)/i, '').trim();
-      const truck = (entry['Kierowca'] || 'unknown').trim();
-      const date = (entry['Data wysyłki'] || '').trim();
-      const time = normalizeTime((entry['Godzina'] || '').trim());
-
-      const qty = Number(entry['Ilość razem'] || 0);
-      const palGiven = Number(entry['Pal'] || 0);
-      const isBio = isBioEntry(entry);
-
-      const boxesPerPallet = getBoxesPerPallet(client);
-      const pal = palGiven > 0 ? palGiven : (qty > 0 ? Math.ceil(qty / boxesPerPallet) : 0);
-
-      // 🖊 Заповнення шаблону
-      if (!isBio) {
-        // Верхній блок (банани)
-        mainSheet.getCell('J8').value = date;
-        mainSheet.getCell('C8').value = client;
-        mainSheet.getCell('J25').value = `${qty} (${pal})`;
-        mainSheet.getCell('J29').value = truck;
-        mainSheet.getCell('E10').value = time;
-      } else {
-        // Нижній блок (BIO)
-        mainSheet.getCell('J58').value = date;
-        mainSheet.getCell('C58').value = `${client} (BIO)`;
-        mainSheet.getCell('J67').value = `${qty} (${pal})`;
-        mainSheet.getCell('K61').value = truck;
-        mainSheet.getCell('E59').value = time;
-      }
-
-      // 📂 Збереження у папку клієнта
-      const safeClientName = safeName(client);
-      const safeTruck = safeName(truck);
-      const clientBaseDir = path.join(outputDir, safeClientName);
-      if (!fs.existsSync(clientBaseDir)) fs.mkdirSync(clientBaseDir, { recursive: true });
-
-      // ✅ Формуємо ім'я файлу лише з глобальним номером
-      globalIndex += 1; // 1, 2, 3 ...
-     // const suffix = isBio ? 'BIO' : 'BAN';
-      const fileName = `Quality report ${globalIndex} - ${safeClientName}_${safeTruck}.xlsx`;
-      const outputPath = path.join(clientBaseDir, fileName);
-
-      await workbook.xlsx.writeFile(outputPath);
-      processed += 1;
-
-      console.log(`📄 Створено файл (#${processed}): ${outputPath}`);
-    } catch (err) {
-      console.error('❌ Помилка при генерації запису:', err);
+    if (isBioEntry(entry)) {
+      groups.get(key).bio = entry;
+    } else {
+      groups.get(key).ban = entry;
     }
   }
 
-  if (processed === 0) {
-    console.warn('⚠️ Не згенеровано жодного файлу. Можливо, дані порожні або шаблон некоректний.');
-  } else {
-    console.log(`✅ Усі звіти згенеровано успішно! Кількість: ${processed}`);
+  let processed = 0;
+
+  for (const group of groups.values()) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
+
+    const mainSheet = workbook.getWorksheet('RAPORT WYDANIA F-NR 15');
+    if (!mainSheet) continue;
+
+    if (group.ban) {
+      const e = group.ban;
+      const qty = Number(e['Ilość razem'] || 0);
+      const palGiven = Number(e['Pal'] || 0);
+      const boxes = getBoxesPerPallet(group.client);
+      const pal = palGiven > 0 ? palGiven : Math.ceil(qty / boxes);
+
+      mainSheet.getCell('J8').value = e['Data wysyłki'] || '';
+      mainSheet.getCell('C8').value = group.client;
+      mainSheet.getCell('J25').value = `${qty} (${pal})`;
+      mainSheet.getCell('J29').value = group.truck;
+      mainSheet.getCell('E10').value = normalizeTime(e['Godzina']);
+    }
+
+    if (group.bio) {
+      const e = group.bio;
+      const qty = Number(e['Ilość razem'] || 0);
+      const palGiven = Number(e['Pal'] || 0);
+      const boxes = getBoxesPerPallet(group.client);
+      const pal = palGiven > 0 ? palGiven : Math.ceil(qty / boxes);
+
+      mainSheet.getCell('J58').value = e['Data wysyłki'] || '';
+      mainSheet.getCell('C58').value = `${group.client} (BIO)`;
+      mainSheet.getCell('J67').value = `${qty} (${pal})`;
+      mainSheet.getCell('K61').value = group.truck;
+      mainSheet.getCell('E59').value = normalizeTime(e['Godzina']);
+    }
+
+    const safeClientName = safeName(group.client);
+    const safeTruck = safeName(group.truck);
+    const clientDir = path.join(outputDir, safeClientName);
+    if (!fs.existsSync(clientDir)) fs.mkdirSync(clientDir, {recursive: true});
+
+    globalIndex++;
+    const fileName = `Quality report ${globalIndex} - ${safeClientName}_${safeTruck}.xlsx`;
+    const outputPath = path.join(clientDir, fileName);
+
+    await workbook.xlsx.writeFile(outputPath);
+    processed++;
+
+    console.log(`📄 Створено: ${outputPath}`);
   }
+
+  console.log(`✅ Успішно створено файлів: ${processed}`);
 }
 
-// ▶️ Запуск
-fillTemplateNoGrouping().catch(err => {
+fillTemplateGroupedByClientAndTruck().catch((err) => {
   console.error('❌ Критична помилка:', err);
   process.exit(1);
 });
